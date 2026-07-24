@@ -84,6 +84,48 @@ The case that matters most is the approval race: two admins `POST /approve` on t
 concurrently, and the suite asserts one 200, one 409, exactly one `approved_by` stamped, and
 exactly one `APPROVED` row in `visit_events`. If you touch the decision path, run this.
 
+## Notifications
+
+Two layers, and the distinction matters:
+
+1. **The record** — a row in `notifications`, written **inside the same transaction** as the event
+   that caused it. This is the durable part. `DELETE` is blocked by a trigger, so history is
+   permanent, exactly like `visit_events`.
+2. **The delivery** — a Web Push to the user's devices, attempted only *after* that commit and
+   never awaited by the HTTP response. Push is lossy by nature (device offline, permission revoked,
+   push service down), so it is treated as best-effort. `lib/sweeper.js` retries anything with
+   `pushed_at IS NULL` for 24 hours, up to 5 attempts.
+
+Never create a notification outside the caller's transaction — an alert that survives a rolled-back
+visit, or a visit with no alert, is worse than either alone.
+
+| Event | Recipients |
+|---|---|
+| New request | every active ADMIN + SUPERADMIN (matches the shared queue) |
+| Approved / rejected | the SECURITY user who logged it |
+| Checked in | the host admin only |
+| Pending > 10 min | every approver, once, via the sweeper |
+
+When one admin decides, the others' broadcast is marked `resolved_at` — **not deleted**. Their
+history shows it as "Handled" instead of sending them to a queue the visit has already left.
+
+```bash
+npm run vapid    # generate a keypair; put both lines in .env, then restart
+```
+
+Rotating VAPID keys invalidates every existing device subscription and silently stops delivery
+until each user re-enables. Keep the pair stable once devices are registered.
+
+Without VAPID keys the app still runs and still records everything — only the phone's notification
+shade goes quiet, and the server logs a warning at startup.
+
+**Platform limits worth knowing before debugging "it doesn't work":**
+- Android/Chrome: works installed or in-browser.
+- iOS/Safari: **only** once the app is on the Home Screen (iOS 16.4+). In a Safari tab `PushManager`
+  does not exist. `web/src/lib/push.js` reports this as `needs-install` and the UI tells the user to
+  install rather than showing a generic failure.
+- The permission prompt must originate from a real tap.
+
 ## SharePoint photo sync
 
 Visitor photos are copied to the Dhanam Repository SharePoint site, filed by visit date:

@@ -46,6 +46,47 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-07-24 — Notifications (Web Push + permanent history)
+
+Alerts reach the phone's notification shade even with the app closed, and every alert is kept
+forever in an in-app history. See CLAUDE.md for the contract and platform limits.
+
+- `004_notifications.sql` — `notifications` (DELETE blocked by trigger) and `push_subscriptions`
+  (one row per device, unique by endpoint, disabled rather than deleted on 404/410).
+- `lib/push.js` — VAPID transport; prunes subscriptions the push service reports as gone.
+- `lib/notify.js` — replaces the old `notifyAdmin()` stub. Creates rows in the caller's
+  transaction; delivery is scheduled after commit and never blocks the response.
+- `lib/sweeper.js` — 60s tick: escalates requests pending over 10 minutes (once each, guarded by
+  `NOT EXISTS`), and retries undelivered pushes for 24 hours / 5 attempts.
+- `routes/notifications.js` — history (paginated, never trimmed), unread count, read / read-all,
+  subscribe / unsubscribe / test push. Every query is scoped to the requesting user.
+- Frontend: service worker `push` + `notificationclick`, a bell with unread badge in `AppHeader`,
+  and a notification centre that explains per device *why* alerts are or are not arriving.
+
+**Design note.** The ordering is the whole design: record first inside the transaction, push after.
+Push cannot be the source of truth — that is what makes "nothing should be lost" true when a
+device is offline, uninstalled, or has revoked permission.
+
+Removed the pending-count badge from the approvals header: it collided with the new bell badge and
+the same count was already on the Pending tab.
+
+### Verification
+
+Twenty-five new cases in the e2e suite (88 total, all passing): fan-out to every approver and to
+nobody else, per-user scoping (one user cannot read or mark another's), decision routed back to the
+logging guard, check-in routed to the host only, stale broadcasts resolved but retained, unread
+counting, read and read-all, database-level DELETE refusal, and device subscription upsert.
+
+In production: the VAPID keypair was validated against Google's push service — FCM returned 410 for
+a deliberately unknown endpoint rather than 401/403, which means the signature was accepted. One
+minute after deploy the sweeper escalated a visit that had been pending since 11:09, creating
+exactly seven notifications — one per approver, no duplicates — with retry attempts recorded and
+`pushed_at` still NULL because no device has been registered yet. That is the intended behaviour:
+the alerts are safe in history and will be there when the admins enable notifications.
+
+**Still unverified:** delivery to a physical handset. That needs someone to open the app on a phone
+and tap "Turn on", then "Send a test" — it cannot be proven from here.
+
 ## 2026-07-24 — SharePoint photo sync
 
 Photos are copied to `Documents/GatePass/<YYYY-MM-DD>/` on the Dhanam Repository site
