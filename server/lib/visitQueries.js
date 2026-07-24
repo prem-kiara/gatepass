@@ -40,7 +40,7 @@ const VISIT_SELECT = `
   LEFT JOIN LATERAL (
     SELECT json_agg(
              json_build_object('id', vc.id, 'name', vc.name, 'photo_path', vc.photo_path)
-             ORDER BY vc.created_at
+             ORDER BY vc.position, vc.id
            ) AS items
     FROM visit_companions vc
     WHERE vc.visit_id = v.id

@@ -8,7 +8,8 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "migrate": "node migrate.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "sync:photos": "node scripts/sync-photos-sharepoint.js"
   },
   "engines": {
     "node": ">=20"

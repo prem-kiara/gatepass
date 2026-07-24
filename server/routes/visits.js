@@ -131,9 +131,11 @@ router.post(
         const id = rows[0].id;
 
         for (let i = 0; i < companionNames.length; i += 1) {
+          // position preserves the order the guard added them; created_at cannot,
+          // because every row in this transaction shares one timestamp.
           await client.query(
-            'INSERT INTO visit_companions (visit_id, name, photo_path) VALUES ($1, $2, $3)',
-            [id, companionNames[i], companionPhotos[i]]
+            'INSERT INTO visit_companions (visit_id, name, photo_path, position) VALUES ($1, $2, $3, $4)',
+            [id, companionNames[i], companionPhotos[i], i + 1]
           );
         }
 
