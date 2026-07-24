@@ -70,6 +70,20 @@ cd ../web && npm run dev      # Vite on :5173, proxies /api to :3040
 
 Production serves the built SPA from the same Express process — there is no separate frontend server.
 
+## Tests
+
+```bash
+./test/e2e.sh
+```
+
+63 end-to-end cases over the real HTTP API. **It drops and recreates the database named by
+`GATEPASS_TEST_DB` (default `gatepass_dev`) — never point that at production.** It starts its own
+server on port 3040, so stop any local instance first.
+
+The case that matters most is the approval race: two admins `POST /approve` on the same visit
+concurrently, and the suite asserts one 200, one 409, exactly one `approved_by` stamped, and
+exactly one `APPROVED` row in `visit_events`. If you touch the decision path, run this.
+
 ## Deployment (EC2 3.110.0.79, shared VM)
 
 This VM hosts other apps (lockerhub, odpulse, reports, wealth, dashboard, cb).

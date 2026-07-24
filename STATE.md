@@ -49,11 +49,43 @@ Newest entries at the top. Append one entry per change.
 ## 2026-07-24 — Phase 4: Polish & ship
 
 - PWA manifest + service worker (app-shell caching only; no offline writes in v1).
-- Rate limiting on login, request-size caps, phone/role/input validation hardening, consistent
-  error envelope, empty and error states across all screens.
+- Rate limiting on login (keyed by IP **and** username, so one guard mistyping a password cannot
+  lock out a whole gate behind one NAT address), request-size caps, phone/role/input validation
+  hardening, consistent error envelope, empty and error states across all screens.
 - `ecosystem.config.js` (PM2, process name `gatepass`) and `deploy.sh`.
-- Deployed to the shared EC2 VM on 127.0.0.1:3040 behind its own nginx server block for
-  `gatepass.dhanamfinance.com`, TLS via a single-domain certbot certificate. Existing apps untouched.
+- Upgraded multer 1.x → 2.x before launch; 1.x carries known vulnerabilities and this app accepts
+  file uploads from the public internet.
+
+### Live deployment
+
+- **URL:** https://gatepass.dhanamfinance.com (HTTP 301-redirects to HTTPS)
+- **Host:** shared EC2 VM 3.110.0.79, listening on **127.0.0.1:3040** only — never on a public
+  interface. Nginx is the only thing that reaches it.
+- **PM2:** process `gatepass` (id 4), `pm2 save` written. Restart with `pm2 restart gatepass`;
+  never `pm2 restart all` — lockerhub, odpulse-api and reports share this VM.
+- **Database:** Postgres role `gatepass`, database `gatepass`, on the VM's existing cluster.
+- **Photos:** `/var/gatepass/photos`, owned by `ubuntu`. **Must be added to the VM backup routine —
+  it is not covered by a database dump.**
+- **Nginx:** own file `/etc/nginx/sites-available/gatepass`, symlinked into `sites-enabled`.
+  `client_max_body_size 25m` because a group of ten visitors uploads ten photos in one request.
+- **TLS:** single-domain certbot cert `gatepass.dhanamfinance.com`, expires 2026-10-22, auto-renewing.
+- **Verified no collateral impact:** every pre-existing nginx site file was checksummed before the
+  change and re-verified byte-identical afterwards; all other certificates remain single-domain;
+  all other sites still respond. (`dashboard.dhanamfinance.com` returns 502 — it proxies to
+  port 5000, which had nothing listening before this work began and has no PM2 process.
+  Pre-existing and unrelated.)
+- Config backup taken at `/tmp/nginx-backup-<timestamp>` on the VM.
+
+### Verification
+
+63-case end-to-end suite passing against a fresh database, covering: auth and role separation,
+photo access control and path traversal, visit creation with companions, repeat-visitor lookup,
+the full state machine including every illegal transition, the audit trail, database-level
+append-only enforcement, console filters and CSV export, and immediate revocation on deactivation.
+
+The concurrency requirement is tested directly: two admins firing `approve` simultaneously at the
+same visit produce one 200 and one 409, with exactly one `approved_by` stamped and exactly one
+`APPROVED` audit event in the database.
 
 ---
 
