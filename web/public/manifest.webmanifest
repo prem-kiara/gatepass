@@ -1,0 +1,16 @@
+{
+  "name": "GatePass — Visitor Monitoring",
+  "short_name": "GatePass",
+  "description": "Log visitors at the gate and route entry requests to admins for approval.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f2450",
+  "theme_color": "#1f4bb0",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

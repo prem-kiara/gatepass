@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    /* Respect the notch on phones running this full-screen from the home screen. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* iOS Safari zooms the page when focusing an input under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 font-semibold
+           transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100;
+    min-height: 48px;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-approve {
+    @apply btn bg-green-600 text-white hover:bg-green-700;
+  }
+  .btn-reject {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .btn-ghost {
+    @apply btn border-2 border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+
+  .field {
+    @apply w-full rounded-xl border-2 border-slate-300 bg-white px-4 py-3
+           outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+    min-height: 48px;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-slate-700;
+  }
+
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold;
+  }
+}

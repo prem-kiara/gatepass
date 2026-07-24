@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GatePass">
+  <rect width="512" height="512" rx="112" fill="#1f4bb0"/>
+  <path d="M256 96l112 44v104c0 74-46 138-112 160-66-22-112-86-112-160V140l112-44z" fill="#ffffff" opacity="0.16"/>
+  <path d="M256 112l96 38v94c0 64-39 119-96 139-57-20-96-75-96-139v-94l96-38z" fill="none" stroke="#ffffff" stroke-width="20" stroke-linejoin="round"/>
+  <circle cx="256" cy="232" r="40" fill="#ffffff"/>
+  <path d="M186 344c0-38 31-58 70-58s70 20 70 58z" fill="#ffffff"/>
+</svg>
