@@ -33,7 +33,9 @@ echo "==> Health check"
 PORT_VALUE="$(grep -E '^PORT=' .env | cut -d= -f2 | tr -d '[:space:]')"
 PORT_VALUE="${PORT_VALUE:-3040}"
 for _ in $(seq 1 15); do
-  if curl -fsS "http://127.0.0.1:${PORT_VALUE}/api/health" > /dev/null; then
+  # No -S: the first attempts are expected to fail while the app boots, and
+  # printing those errors makes a successful deploy read like a broken one.
+  if curl -fs "http://127.0.0.1:${PORT_VALUE}/api/health" > /dev/null 2>&1; then
     echo "==> Deployed. GatePass is healthy on port ${PORT_VALUE}."
     exit 0
   fi
