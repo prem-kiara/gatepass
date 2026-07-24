@@ -46,6 +46,42 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-07-24 — SharePoint photo sync
+
+Photos are copied to `Documents/GatePass/<YYYY-MM-DD>/` on the Dhanam Repository site
+(`kiaramfi.sharepoint.com/sites/repo`), with readable filenames and a per-day `_manifest.csv`.
+Cron every 15 minutes. See CLAUDE.md for the operating detail.
+
+- `server/lib/sharepoint.js` — Graph adapter (client-credentials OAuth, PUT-to-path upload).
+  Credentials come from SSM at runtime via the instance role; **no secret enters this repo.**
+  Reuses the Azure app registration the wealth nightly backup already uses, which already holds
+  `Files.ReadWrite.All`, so nothing new had to be granted in Azure.
+- `server/scripts/sync-photos-sharepoint.js` — the sync, with `--dry-run`, `--self-test` and
+  `--date=` backfill.
+- `002_photo_sync.sql` — `photo_sync` tracking table making the job idempotent.
+
+### Fixed along the way
+
+- **Companion ordering (`003_companion_position.sql`).** Companions are inserted in a single
+  transaction, so their `created_at` values tie and ordering fell back to the random UUID `id`.
+  Members appeared in arbitrary order in the console and were numbered arbitrarily in SharePoint
+  filenames — "member1" was whoever won a coin flip, not who the guard entered first. There is now
+  an explicit `position` column, set on insert and used by every ordering.
+- **Cron `PATH`.** `lib/sharepoint.js` shells out to the AWS CLI, which lives in `/usr/local/bin`;
+  cron's `PATH` is `/usr/bin:/bin`. Resolving the binary by name worked interactively and would
+  have failed **only from cron, and only on the first day a real visitor was logged** — because with
+  nothing to upload the script returns before it ever loads credentials. Caught by running the job
+  under `env -i PATH=/usr/bin:/bin`. The adapter now resolves the CLI by absolute path and the
+  crontab sets `PATH` too.
+
+### Verification
+
+Proven end to end on the VM against a scratch database, a scratch photo directory and an isolated
+`GatePass/.verify/` folder, so no production data or real folder was touched: three photos and a
+manifest uploaded into the correct date folder with correct names and member numbering, contents
+read back from Graph to confirm they were really stored, a second run correctly did nothing, and
+every artifact was then deleted. The `photo_sync` rows matched.
+
 ## 2026-07-24 — Phase 4: Polish & ship
 
 - PWA manifest + service worker (app-shell caching only; no offline writes in v1).

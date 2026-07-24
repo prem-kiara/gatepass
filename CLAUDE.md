@@ -84,6 +84,46 @@ The case that matters most is the approval race: two admins `POST /approve` on t
 concurrently, and the suite asserts one 200, one 409, exactly one `approved_by` stamped, and
 exactly one `APPROVED` row in `visit_events`. If you touch the decision path, run this.
 
+## SharePoint photo sync
+
+Visitor photos are copied to the Dhanam Repository SharePoint site, filed by visit date:
+
+```
+Documents/GatePass/2026-07-24/0930_Suresh-Kumar_a1b2c3d4.jpg
+Documents/GatePass/2026-07-24/0930_Suresh-Kumar_a1b2c3d4_member1_Lakshmi.jpg
+Documents/GatePass/2026-07-24/_manifest.csv
+Documents/GatePass/2026-07-25/...
+```
+
+```bash
+npm run sync:photos -- --dry-run     # show what would upload, upload nothing
+npm run sync:photos                  # upload everything outstanding
+npm run sync:photos -- --self-test   # prove auth/upload/delete, touches no visitor data
+npm run sync:photos -- --date=2026-07-24   # backfill one visit date
+```
+
+Runs from cron every 15 minutes (`crontab -l` on the VM).
+
+- **A photo is filed under the date of its visit in gate-local time, not the date the sync ran.**
+  A retry, a late run, or a backfill therefore all land in the same correct day's folder.
+- **Idempotent** via the `photo_sync` table: only photos with no row there are uploaded, and the
+  row is written after the upload succeeds. A photo missing from disk is reported and left
+  unmarked rather than recorded as synced, so it stays visible instead of being silently dropped.
+- Graph's PUT-to-path creates the date folder on that day's first upload — there is no separate
+  create-folder call to race on.
+- `_manifest.csv` is regenerated from the database on every run, not appended, so it stays correct
+  when a visit is approved or checked out after its photo was already uploaded.
+
+**Credentials are never stored in this repo.** They are read at runtime from AWS SSM
+(`/dhanam/wealth/SHAREPOINT_*`, override with `SHAREPOINT_SSM_PATH`) using the EC2 instance role,
+reusing the Azure app registration the wealth backup already uses — it already holds the
+application permission `Files.ReadWrite.All`. Setting the `SHAREPOINT_*` env vars overrides SSM,
+which is what makes local dry-running possible with no AWS access.
+
+Note for anything else that shells out on this VM: cron's `PATH` is `/usr/bin:/bin`, but the AWS
+CLI lives in `/usr/local/bin`. `lib/sharepoint.js` resolves the binary by absolute path for that
+reason, and the crontab also sets `PATH` explicitly.
+
 ## Deployment (EC2 3.110.0.79, shared VM)
 
 This VM hosts other apps (lockerhub, odpulse, reports, wealth, dashboard, cb).
