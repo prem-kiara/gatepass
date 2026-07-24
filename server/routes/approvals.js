@@ -7,6 +7,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 const { str, uuid } = require('../lib/validate');
 const { VISIT_SELECT, decorate } = require('../lib/visitQueries');
+const notify = require('../lib/notify');
 
 const router = express.Router();
 const approvers = [requireAuth, requireRole('ADMIN', 'SUPERADMIN')];
@@ -63,12 +64,13 @@ async function decide(req, res, next, { status, action, reason }) {
   try {
     const visitId = uuid(req.params.id, 'Visit', { required: true });
 
+    let queuedNotifications = [];
     const won = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `UPDATE visits
          SET status = $1, approved_by = $2, decision_at = now(), rejection_reason = $3
          WHERE id = $4 AND status = 'PENDING'
-         RETURNING id`,
+         RETURNING id, logged_by, status, rejection_reason`,
         [status, req.user.id, reason, visitId]
       );
       if (rows.length === 0) return false;
@@ -77,8 +79,24 @@ async function decide(req, res, next, { status, action, reason }) {
         `INSERT INTO visit_events (visit_id, actor_id, action, detail) VALUES ($1, $2, $3, $4)`,
         [visitId, req.user.id, action, JSON.stringify(reason ? { reason } : {})]
       );
+
+      // The broadcast "please approve" alert is now stale for every other admin.
+      // Resolved, not deleted — the history keeps it.
+      await notify.resolveForVisit(client, visitId);
+
+      const { rows: who } = await client.query(
+        'SELECT full_name FROM visitors vis JOIN visits v ON v.visitor_id = vis.id WHERE v.id = $1',
+        [visitId]
+      );
+      queuedNotifications = await notify.visitDecided(
+        client,
+        { ...rows[0], id: visitId, full_name: who[0] ? who[0].full_name : 'Visitor' },
+        req.user.name
+      );
       return true;
     });
+
+    if (won) notify.scheduleDelivery(queuedNotifications);
 
     const { rows } = await query(`${VISIT_SELECT} WHERE v.id = $1`, [visitId]);
     if (rows.length === 0) {

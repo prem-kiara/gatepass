@@ -35,8 +35,17 @@ module.exports = {
   timezone: process.env.APP_TZ || 'Asia/Kolkata',
   // Sessions: security staff re-login each shift, office roles stay signed in.
   tokenTtl: { SECURITY: '12h', ADMIN: '7d', SUPERADMIN: '7d' },
-  // A pending request older than this shows up in the shared "Unattended" list.
+  // A pending request older than this shows up in the shared "Unattended" list
+  // and triggers an escalation notification to every admin.
   unattendedAfterSeconds: 10 * 60,
+  // Web Push. Generate a keypair with `npm run vapid`. Without these the app
+  // runs normally and notifications still accumulate in the in-app history —
+  // only the phone's notification shade goes quiet.
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:contact@dhanam.finance',
+  },
   maxCompanions: 10,
   maxPhotoBytes: 8 * 1024 * 1024,
   seed: {

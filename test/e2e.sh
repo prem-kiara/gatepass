@@ -191,7 +191,92 @@ head -1 "$D/r.csv" | grep -q 'Visit ID' && ok "CSV export has header" || bad "cs
 grep -q 'Suresh Kumar' "$D/r.csv" && ok "CSV contains visit rows" || bad "csv rows" ""
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/report/daily"); check "admin blocked from reports" "$code" "403"
 
-echo "=== 16. Deactivation cuts access immediately ==="
+echo "=== 16. Notifications ==="
+# Fresh visit so the notification assertions are not entangled with earlier ones.
+code=$(curl -s -o "$D/v3.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Notify Test" -F "purpose=Meeting" -F "host_admin_id=$ADMIN1_ID")
+check "visit for notification test created" "$code" "201"
+V3=$(firstid "$D/v3.json")
+needid "third visit id captured" "$V3"
+
+N_A1=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_PENDING' AND u.username='admin1'")
+N_A2=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_PENDING' AND u.username='admin2'")
+N_SU=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_PENDING' AND u.username='superadmin'")
+N_G=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND u.username='guard1'")
+check "admin1 notified of new request" "$N_A1" "1"
+check "admin2 notified of new request" "$N_A2" "1"
+check "superadmin notified of new request" "$N_SU" "1"
+check "guard not notified of own request" "$N_G" "0"
+
+# Guard sees nothing yet; the API must be scoped per user.
+curl -s -b "$D/g.txt" "$API/notifications" > "$D/ng.json"
+grep -q '"Notify Test"' "$D/ng.json" && bad "scoping" "guard sees an admin notification" || ok "notification list is scoped per user"
+
+echo "--- approve, then check the decision reaches the guard ---"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/visits/$V3/approve")
+check "approve for notification test" "$code" "200"
+sleep 1
+N_GA=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_APPROVED' AND u.username='guard1'")
+check "guard notified of approval" "$N_GA" "1"
+
+# The other admins' broadcast is now stale and must be resolved, not deleted.
+RESOLVED=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE visit_id='$V3' AND type='VISIT_PENDING' AND resolved_at IS NOT NULL")
+STILL=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE visit_id='$V3' AND type='VISIT_PENDING'")
+check "stale broadcasts resolved" "$RESOLVED" "3"
+check "resolved notifications still exist (nothing lost)" "$STILL" "3"
+
+echo "--- check-in notifies the host admin only ---"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$V3/check-in")
+check "check-in for notification test" "$code" "200"
+sleep 1
+N_HOST=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_IN' AND u.username='admin1'")
+N_OTHER=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_IN' AND u.username='admin2'")
+check "host admin notified of check-in" "$N_HOST" "1"
+check "non-host admin not notified of check-in" "$N_OTHER" "0"
+
+echo "--- history, unread count and read state ---"
+curl -s -b "$D/a1.txt" "$API/notifications" > "$D/n1.json"
+grep -q '"Notify Test' "$D/n1.json" && ok "history returns notifications" || bad "history" "$(head -c 200 "$D/n1.json")"
+UNREAD=$(curl -s -b "$D/a1.txt" "$API/notifications/unread-count" | sed -n 's/.*"unread":\([0-9]*\).*/\1/p')
+[ "$UNREAD" -ge 2 ] && ok "unread count reflects new notifications ($UNREAD)" || bad "unread count" "got $UNREAD"
+
+NID=$(psql -qtAX -d "$DB" -c "SELECT n.id FROM notifications n JOIN users u ON u.id=n.user_id WHERE u.username='admin1' ORDER BY n.id DESC LIMIT 1")
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/notifications/$NID/read")
+check "mark one notification read" "$code" "200"
+# admin2 must not be able to touch admin1's notification.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a2.txt" -X POST "$API/notifications/$NID/read")
+check "cannot mark another user's notification read" "$code" "404"
+
+curl -s -b "$D/a1.txt" -X POST "$API/notifications/read-all" > /dev/null
+UNREAD2=$(curl -s -b "$D/a1.txt" "$API/notifications/unread-count" | sed -n 's/.*"unread":\([0-9]*\).*/\1/p')
+check "read-all clears the unread count" "$UNREAD2" "0"
+TOTAL=$(curl -s -b "$D/a1.txt" "$API/notifications" | sed -n 's/.*"total":\([0-9]*\).*/\1/p')
+[ "$TOTAL" -ge 3 ] && ok "history retained after marking read ($TOTAL)" || bad "history retained" "got $TOTAL"
+
+echo "--- nothing can be deleted ---"
+OUT=$(psql -qtAX -d "$DB" -c "DELETE FROM notifications WHERE visit_id='$V3'" 2>&1)
+echo "$OUT" | grep -q "permanent" && ok "DELETE on notifications blocked by database" || bad "delete guard" "$OUT"
+
+echo "--- push subscription plumbing ---"
+curl -s -b "$D/a1.txt" "$API/notifications/push/public-key" > "$D/pk.json"
+grep -q '"enabled":true' "$D/pk.json" && ok "VAPID public key served" || bad "public key" "$(cat "$D/pk.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/notifications/push/subscribe" \
+  -H 'Content-Type: application/json' \
+  -d '{"subscription":{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-test-endpoint","keys":{"p256dh":"BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM=","auth":"tBHItJI5svbpez7KI4CCXg=="}}}')
+check "device subscription stored" "$code" "201"
+SUBS=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM push_subscriptions WHERE endpoint='https://fcm.googleapis.com/fcm/send/e2e-test-endpoint'")
+check "exactly one subscription row" "$SUBS" "1"
+# Re-subscribing the same device must update, not duplicate.
+curl -s -o /dev/null -b "$D/a1.txt" -X POST "$API/notifications/push/subscribe" \
+  -H 'Content-Type: application/json' \
+  -d '{"subscription":{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-test-endpoint","keys":{"p256dh":"BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM=","auth":"tBHItJI5svbpez7KI4CCXg=="}}}' > /dev/null
+SUBS2=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM push_subscriptions WHERE endpoint='https://fcm.googleapis.com/fcm/send/e2e-test-endpoint'")
+check "re-subscribing same device does not duplicate" "$SUBS2" "1"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/notifications/push/unsubscribe" \
+  -H 'Content-Type: application/json' -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-test-endpoint"}')
+check "unsubscribe" "$code" "200"
+
+echo "=== 17. Deactivation cuts access immediately ==="
 GID=$(psql -qtAX -d "$DB" -c "SELECT id FROM users WHERE username='guard1'")
 curl -s -b "$D/su.txt" -X PATCH "$API/admin/users/$GID" -H 'Content-Type: application/json' -d '{"is_active":false}' > /dev/null
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/visits/today")

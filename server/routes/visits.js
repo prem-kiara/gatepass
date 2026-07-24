@@ -9,7 +9,7 @@ const { requireRole } = require('../middleware/requireRole');
 const { str, normalizePhone, uuid, ValidationError } = require('../lib/validate');
 const { storePhoto, deletePhotos } = require('../lib/photos');
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
-const { notifyAdmin } = require('../lib/notify');
+const notify = require('../lib/notify');
 
 const router = express.Router();
 
@@ -98,12 +98,14 @@ router.post(
 
       // A host_admin_id that is not actually an active admin would produce a visit
       // nobody can act on, so verify it before writing anything.
+      let hostDisplay = hostName;
       if (hostAdminId) {
         const host = await query(
-          "SELECT id FROM users WHERE id = $1 AND is_active = true AND role IN ('ADMIN', 'SUPERADMIN')",
+          "SELECT id, name FROM users WHERE id = $1 AND is_active = true AND role IN ('ADMIN', 'SUPERADMIN')",
           [hostAdminId]
         );
         if (host.rowCount === 0) throw new ValidationError('That host is not available.', 'host');
+        hostDisplay = host.rows[0].name;
       }
 
       const companionFiles = files.companion_photos || [];
@@ -118,6 +120,7 @@ router.post(
         companionPhotos.push(name);
       }
 
+      let queuedNotifications = [];
       const visitId = await withTransaction(async (client) => {
         const visitorId = await resolveVisitor(client, { fullName, phone });
 
@@ -155,13 +158,25 @@ router.post(
           ]
         );
 
+        // Written in this transaction so the alert cannot exist without the
+        // visit, or the visit without the alert.
+        queuedNotifications = await notify.visitPending(client, {
+          id,
+          full_name: fullName,
+          host_display: hostDisplay,
+          purpose,
+          companion_count: companionNames.length,
+          logged_by_name: req.user.name,
+        });
+
         return id;
       });
 
       const { rows } = await query(`${VISIT_SELECT} WHERE v.id = $1`, [visitId]);
       const visit = decorate(rows[0]);
 
-      notifyAdmin(visit, { hostAdmin: null }).catch(() => {});
+      // Push only after the commit, and without blocking the response.
+      notify.scheduleDelivery(queuedNotifications);
       res.status(201).json({ visit });
     } catch (err) {
       // The photos are already on disk but the row never landed — do not leave orphans.
@@ -190,10 +205,11 @@ router.get('/today', ...securityOnly, async (req, res, next) => {
  * device already moved this visit and we report the current state instead of
  * overwriting it.
  */
-async function transition(req, res, next, { from, to, setSql, action }) {
+async function transition(req, res, next, { from, to, setSql, action, notifyFn }) {
   try {
     const visitId = uuid(req.params.id, 'Visit', { required: true });
 
+    let queuedNotifications = [];
     const updated = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `UPDATE visits SET status = $1, ${setSql} WHERE id = $2 AND status = $3 RETURNING id`,
@@ -205,8 +221,12 @@ async function transition(req, res, next, { from, to, setSql, action }) {
         `INSERT INTO visit_events (visit_id, actor_id, action, detail) VALUES ($1, $2, $3, $4)`,
         [visitId, req.user.id, action, JSON.stringify({ from, to })]
       );
+
+      if (notifyFn) queuedNotifications = (await notifyFn(client, visitId)) || [];
       return rows[0].id;
     });
+
+    if (updated) notify.scheduleDelivery(queuedNotifications);
 
     const { rows } = await query(`${VISIT_SELECT} WHERE v.id = $1`, [visitId]);
     if (rows.length === 0) {
@@ -233,6 +253,17 @@ router.post('/:id/check-in', ...securityOnly, (req, res, next) =>
     to: 'INSIDE',
     setSql: 'checked_in_at = now()',
     action: 'CHECKED_IN',
+    // Tell the host their visitor is inside and heading over.
+    notifyFn: async (client, visitId) => {
+      const { rows } = await client.query(
+        `SELECT v.id, v.host_admin_id, vis.full_name,
+                (SELECT count(*) FROM visit_companions c WHERE c.visit_id = v.id)::int AS companion_count
+         FROM visits v JOIN visitors vis ON vis.id = v.visitor_id
+         WHERE v.id = $1`,
+        [visitId]
+      );
+      return rows.length ? notify.visitCheckedIn(client, rows[0]) : [];
+    },
   })
 );
 

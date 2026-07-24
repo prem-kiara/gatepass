@@ -8,6 +8,8 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { pool } = require('./db');
 const { ensurePhotoDir } = require('./lib/photos');
+const push = require('./lib/push');
+const sweeper = require('./lib/sweeper');
 const { notFound, errorHandler } = require('./middleware/errors');
 
 const app = express();
@@ -47,6 +49,7 @@ app.use('/api/approvals', approvalsRouter);
 // belongs to the visit. Mounted after the visits router so its own routes match first.
 app.use('/api/visits', approvalsRouter);
 app.use('/api/photos', require('./routes/photos'));
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.use('/api', notFound);
@@ -85,6 +88,10 @@ ensurePhotoDir();
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.log(`[gatepass] listening on 127.0.0.1:${config.port} (${config.isProd ? 'production' : 'development'})`);
   console.log(`[gatepass] photos: ${config.photoDir}`);
+  if (!push.isConfigured()) {
+    console.warn('[gatepass] VAPID keys not set — notifications are recorded in-app but no push is sent. Run `npm run vapid`.');
+  }
+  sweeper.start();
 });
 
 // PM2 sends SIGINT on restart; drain connections so an in-flight approval is not

@@ -217,6 +217,41 @@ export const L = {
     },
   },
 
+  // --- notifications ---
+  notifications: {
+    title: 'Notifications',
+    open: 'Notifications',
+    none: 'No notifications yet.',
+    noneHint: 'Alerts about visitors will appear here.',
+    markAllRead: 'Mark all read',
+    loadMore: 'Load older',
+    unreadOnly: 'Unread only',
+    all: 'All',
+    showingCount: (shown: number, total: number) => `Showing ${shown} of ${total}`,
+    handled: 'Handled',
+
+    enableTitle: 'Turn on alerts',
+    enableBody: 'Get a notification on this phone the moment a visitor arrives.',
+    enableButton: 'Turn on',
+    enabling: 'Turning on…',
+    enabled: 'Alerts are on for this device.',
+    testButton: 'Send a test',
+    testSent: 'Test sent — check your notification panel.',
+    testNoDevice: 'No device is registered for alerts yet.',
+
+    blockedTitle: 'Alerts are blocked',
+    blockedBody:
+      'This phone has blocked notifications for GatePass. Allow them in the browser’s site settings to get alerts.',
+    installTitle: 'Install the app first',
+    installBody:
+      'On iPhone, alerts work only after adding GatePass to the Home Screen: tap Share, then “Add to Home Screen”, and open it from there.',
+    unsupportedTitle: 'Alerts are not available',
+    unsupportedBody:
+      'This browser cannot show notifications. You will still see everything in this list.',
+    serverOffTitle: 'Alerts are not set up',
+    serverOffBody: 'Push notifications are not configured on the server yet.',
+  },
+
   // --- audit actions ---
   action: {
     CREATED: 'Logged at gate',
