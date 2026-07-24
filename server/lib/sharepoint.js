@@ -24,10 +24,38 @@
  * dry-running possible without any AWS access.
  */
 
+const fs = require('fs');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Locate the AWS CLI without depending on PATH.
+ *
+ * cron runs with PATH=/usr/bin:/bin, but the CLI installs to /usr/local/bin —
+ * so resolving by name works interactively and fails only from cron, on the
+ * first day a visitor is actually logged. Check the usual locations explicitly.
+ */
+function resolveAwsCli() {
+  if (process.env.AWS_CLI_PATH) return process.env.AWS_CLI_PATH;
+  const candidates = [
+    '/usr/local/bin/aws',
+    '/usr/bin/aws',
+    '/snap/bin/aws',
+    '/opt/homebrew/bin/aws',
+    '/usr/local/aws-cli/v2/current/bin/aws',
+  ];
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (err) {
+      /* try the next one */
+    }
+  }
+  return 'aws'; // fall back to PATH lookup
+}
 
 const SSM_PATH = process.env.SHAREPOINT_SSM_PATH || '/dhanam/wealth';
 const KEYS = [
@@ -58,7 +86,7 @@ async function getConfig() {
     const names = missing.map((k) => `${SSM_PATH}/${k}`);
     let stdout;
     try {
-      const res = await execFileAsync('aws', [
+      const res = await execFileAsync(resolveAwsCli(), [
         'ssm', 'get-parameters',
         '--names', ...names,
         '--with-decryption',
@@ -67,7 +95,8 @@ async function getConfig() {
       stdout = res.stdout;
     } catch (err) {
       throw new Error(
-        `Could not read SharePoint credentials from SSM (${SSM_PATH}). ` +
+        `Could not read SharePoint credentials from SSM (${SSM_PATH}) using ` +
+        `"${resolveAwsCli()}": ${err.message.split('\n')[0]}. ` +
         'On the VM this needs the instance role; locally, set the SHAREPOINT_* env vars instead.'
       );
     }
