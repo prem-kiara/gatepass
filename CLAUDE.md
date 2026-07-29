@@ -8,7 +8,11 @@ and a full audit trail for the superadmin.
 - **Runtime:** Node.js 20+, CommonJS. Single Express app serves both `/api/*` and the built React SPA.
 - **Frontend:** React 18 + Vite + Tailwind CSS 3, mobile-first. Built to `web/dist`, served by Express.
 - **Database:** PostgreSQL. Plain numbered SQL migrations in `server/migrations/`, run by `server/migrate.js`. No ORM — `pg` with parameterized queries only.
-- **Auth:** username + password (bcryptjs), JWT in an httpOnly cookie (`gp_token`). 12h expiry for SECURITY, 7d for ADMIN/SUPERADMIN. Role enforced in middleware on every route.
+- **Auth:** JWT in an httpOnly cookie (`gp_token`), 12h for SECURITY and 7d for ADMIN/SUPERADMIN, role enforced in middleware on every route. Three ways to prove identity, all authenticating the *owner* and no one else:
+  - **Password** (bcryptjs) — the backup for everyone.
+  - **PIN** (guards) — 6 digits, bcrypt-hashed, name-picker sign-in on the shared gate phone. Wrong-PIN lockout (5 tries → 15 min, that guard only). Superadmin can *reset* to a one-time PIN (forces a change, logged) but never read or reuse one.
+  - **Passkey** (admins) — WebAuthn / Face ID / fingerprint via `@simplewebauthn`. Only a public key is stored; the biometric never reaches the server. `rpId`/`origin` from `WEBAUTHN_*` config (default production).
+  - Every sign-in (with method), failed attempt, PIN change and reset is written to **`auth_events`** — append-only, DELETE blocked by trigger, same as `visit_events`. This is the "no foulplay" ledger. Users manage their own credentials at `/settings`.
 - **Photos:** captured in-browser, compressed client-side (max edge 1024px, JPEG ~80%), uploaded via multer (memory), normalized and EXIF-stripped by sharp, written to `PHOTO_DIR` with UUID filenames. Served **only** through the authenticated route `GET /api/photos/:filename` — never as public static files.
 
 ## Layout

@@ -46,6 +46,36 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-07-29 — Easier sign-in: guard PINs + admin biometrics (no foulplay)
+
+Two ways to sign in beyond the password (which stays as everyone's backup), each
+authenticating its owner and no one else. Full contract in CLAUDE.md.
+
+- **Guards — 6-digit PIN** (`007_auth_pin_and_log.sql`). Tap your name on the
+  shared gate phone, key the PIN. bcrypt-hashed; 5 wrong tries locks that guard
+  (not the gate) for 15 min; weak PINs refused.
+- **Admins — passkey / Face ID / fingerprint** (`008_webauthn.sql`, WebAuthn via
+  `@simplewebauthn`). Usernameless discoverable-credential login. Only a public
+  key is stored — the biometric never reaches the server.
+- **`auth_events`** — append-only log of every sign-in (with method), failed
+  attempt, PIN change and reset; DELETE blocked by trigger. This is the record
+  that makes "no foulplay" checkable.
+- **Superadmin reset is restore-not-impersonate**: issues a random one-time PIN,
+  forces the guard to set a private one before doing anything (`must_change_pin`),
+  and logs the reset naming the superadmin. Access can be restored but not
+  silently borrowed.
+- **`/settings` ("Sign-in & security")**: guards change their PIN, admins enable
+  biometric on the current device and manage their device list, everyone can
+  change their password. Reachable from a header gear.
+- Login page: name-picker + big-button PIN pad for guards; a "Sign in with Face
+  ID / fingerprint" button for admins; password fallback throughout.
+
+Verified: e2e now 141 cases — full PIN lifecycle, lockout, foulplay-safe reset,
+the audit log, and passkey endpoint gating/options. In-browser: PIN sign-in,
+forced PIN change after a reset, and the role-specific settings screens.
+**Biometric ceremony itself needs a real Face ID / fingerprint device** — that
+last step is confirmed on a phone, not in the test browser.
+
 ## 2026-07-29 — Real-time updates (SSE)
 
 Screens now update the instant something changes — no manual refresh. A new request appears on
