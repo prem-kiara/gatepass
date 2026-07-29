@@ -42,6 +42,7 @@ export const L = {
     pickName: 'Tap your name to sign in',
     noGuards: 'No security staff set up yet.',
     enterPin: (name: string) => `Enter PIN for ${name}`,
+    enterYourPin: 'Enter your PIN',
     pinLabel: 'PIN',
     pinClear: 'Clear',
     pinBack: 'Not you? Go back',
