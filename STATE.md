@@ -46,6 +46,20 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-07-29 — Visitor company
+
+Captures the company/organisation each visitor is visiting from — `005_visit_company.sql` adds
+`visits.company` (optional text, per-visit so a repeat visitor can attend for a different company).
+
+Surfaced everywhere a visitor appears: gate capture form (with repeat-visitor prefill), approval
+card, console list + detail, console free-text search, CSV export ("Company" column), the daily
+SharePoint manifest, and the new-request notification body (e.g. "Anitha Raj (Kiara Global
+Services) to see …").
+
+Deployed and live. e2e extended to 93 cases (all passing) covering company persistence, prefill,
+search-by-company, and the CSV column. Verified in production: migration applied, the served bundle
+carries the field, and the two pre-existing visits correctly show an empty company.
+
 ## 2026-07-24 — Notifications (Web Push + permanent history)
 
 Alerts reach the phone's notification shade even with the app closed, and every alert is kept
