@@ -173,7 +173,7 @@ function buildVisitFilters(q) {
   if (search) {
     params.push(`%${search}%`);
     const i = params.length;
-    clauses.push(`(vis.full_name ILIKE $${i} OR vis.phone ILIKE $${i} OR v.purpose ILIKE $${i})`);
+    clauses.push(`(vis.full_name ILIKE $${i} OR vis.phone ILIKE $${i} OR v.purpose ILIKE $${i} OR v.company ILIKE $${i})`);
   }
 
   return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
@@ -295,7 +295,7 @@ router.get('/report/daily', async (req, res, next) => {
 
     if (String(req.query.format).toLowerCase() === 'csv') {
       const header = [
-        'Visit ID', 'Date', 'Time In', 'Visitor', 'Phone', 'Members', 'Purpose',
+        'Visit ID', 'Date', 'Time In', 'Visitor', 'Company', 'Phone', 'Members', 'Purpose',
         'Visiting', 'Logged By', 'Status', 'Decided By', 'Decided At',
         'Rejection Reason', 'Checked In', 'Checked Out',
       ];
@@ -306,6 +306,7 @@ router.get('/report/daily', async (req, res, next) => {
           new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: config.timezone }),
           new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: config.timezone }),
           v.full_name,
+          v.company,
           v.phone,
           v.companion_count,
           v.purpose,

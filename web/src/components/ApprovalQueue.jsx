@@ -37,6 +37,7 @@ function PendingCard({ visit, onDecide, busy, onOpenPhoto }) {
               {visit.phone} <span className="text-xs text-slate-500">({L.approvals.tapToCall})</span>
             </a>
           )}
+          {visit.company && <Row label={L.gate.company}>{visit.company}</Row>}
           <Row label={L.gate.visiting}>{visit.host_display}</Row>
           {visit.purpose && <Row label={L.gate.purpose}>{visit.purpose}</Row>}
           <Row label={L.approvals.loggedBy}>

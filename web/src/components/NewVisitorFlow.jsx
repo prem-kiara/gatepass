@@ -17,6 +17,7 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [company, setCompany] = useState('');
   const [hostId, setHostId] = useState('');
   const [hostName, setHostName] = useState('');
   const [members, setMembers] = useState([]);
@@ -55,6 +56,7 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
         // Only fill blanks — never overwrite what the guard already typed.
         setFullName((current) => current || visitor.full_name || '');
         setPurpose((current) => current || visitor.purpose || '');
+        setCompany((current) => current || visitor.company || '');
         setHostId((current) => current || visitor.host_admin_id || '');
         if (!visitor.host_admin_id && visitor.host_name) {
           setHostId((current) => current || OTHER);
@@ -85,6 +87,7 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
       form.append('full_name', fullName.trim());
       if (phone.trim()) form.append('phone', phone.trim());
       if (purpose.trim()) form.append('purpose', purpose.trim());
+      if (company.trim()) form.append('company', company.trim());
       if (hostId === OTHER) form.append('host_name', hostName.trim());
       else form.append('host_admin_id', hostId);
 
@@ -175,6 +178,20 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
                   placeholder={L.gate.purposePlaceholder}
+                />
+              </div>
+
+              <div>
+                <label className="label" htmlFor="v-company">
+                  {L.gate.company} <span className="font-normal text-slate-500">({L.optional})</span>
+                </label>
+                <input
+                  id="v-company"
+                  className="field"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder={L.gate.companyPlaceholder}
+                  autoComplete="off"
                 />
               </div>
 

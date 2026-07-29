@@ -102,11 +102,12 @@ async function visitPending(client, visit) {
     type: 'VISIT_PENDING',
     title: 'New visitor at the gate',
     body:
-      `${visit.full_name}${groupSuffix(visit.companion_count)} to see ${visit.host_display}` +
+      `${visit.full_name}${visit.company ? ` (${visit.company})` : ''}` +
+      `${groupSuffix(visit.companion_count)} to see ${visit.host_display}` +
       `${visit.purpose ? ` — ${visit.purpose}` : ''}`,
     visitId: visit.id,
     url: '/approvals',
-    data: { logged_by: visit.logged_by_name },
+    data: { logged_by: visit.logged_by_name, company: visit.company },
   });
 }
 

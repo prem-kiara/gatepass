@@ -138,7 +138,7 @@ async function uploadManifest(dateStr) {
   const { rows } = await pool.query(
     `SELECT
        to_char(v.created_at AT TIME ZONE $1::text, 'HH24:MI') AS time_in,
-       vis.full_name, vis.phone, v.purpose, v.status,
+       vis.full_name, vis.phone, v.company, v.purpose, v.status,
        COALESCE(host.name, v.host_name) AS visiting,
        logger.name  AS logged_by,
        decider.name AS decided_by,
@@ -158,14 +158,14 @@ async function uploadManifest(dateStr) {
   );
 
   const header = [
-    'Time In', 'Visitor', 'Phone', 'Members', 'Purpose', 'Visiting',
+    'Time In', 'Visitor', 'Company', 'Phone', 'Members', 'Purpose', 'Visiting',
     'Logged By', 'Status', 'Decided By', 'Decided At', 'Rejection Reason',
     'Checked In', 'Checked Out',
   ];
   const lines = [header.map(csvCell).join(',')];
   for (const r of rows) {
     lines.push([
-      r.time_in, r.full_name, r.phone, r.members, r.purpose, r.visiting,
+      r.time_in, r.full_name, r.company, r.phone, r.members, r.purpose, r.visiting,
       r.logged_by, r.status, r.decided_by, r.decided_at, r.rejection_reason,
       r.checked_in, r.checked_out,
     ].map(csvCell).join(','));

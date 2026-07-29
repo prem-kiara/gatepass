@@ -89,6 +89,7 @@ router.post(
       const fullName = str(req.body.full_name, 'Visitor name', { required: true, max: 150 });
       const phone = normalizePhone(req.body.phone, 'Phone number');
       const purpose = str(req.body.purpose, 'Purpose', { max: 500 });
+      const company = str(req.body.company, 'Company', { max: 200 });
       const hostAdminId = uuid(req.body.host_admin_id, 'Host');
       const hostName = str(req.body.host_name, 'Host name', { max: 150 });
 
@@ -126,10 +127,10 @@ router.post(
 
         const { rows } = await client.query(
           `INSERT INTO visits
-             (visitor_id, photo_path, purpose, host_admin_id, host_name, logged_by, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+             (visitor_id, photo_path, purpose, company, host_admin_id, host_name, logged_by, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
            RETURNING id`,
-          [visitorId, primaryPhoto, purpose, hostAdminId, hostAdminId ? null : hostName, req.user.id]
+          [visitorId, primaryPhoto, purpose, company, hostAdminId, hostAdminId ? null : hostName, req.user.id]
         );
         const id = rows[0].id;
 
@@ -152,6 +153,7 @@ router.post(
               visitor_name: fullName,
               phone,
               purpose,
+              company,
               companions: companionNames.length,
               host: hostAdminId ? { admin_id: hostAdminId } : { name: hostName },
             }),
@@ -165,6 +167,7 @@ router.post(
           full_name: fullName,
           host_display: hostDisplay,
           purpose,
+          company,
           companion_count: companionNames.length,
           logged_by_name: req.user.name,
         });

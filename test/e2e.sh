@@ -72,7 +72,7 @@ const sharp=require('$ROOT/server/node_modules/sharp');
 "
 code=$(curl -s -o "$D/visit.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
   -F "photo=@$D/p.jpg" -F "full_name=Suresh Kumar" -F "phone=9876543210" \
-  -F "purpose=Loan enquiry" -F "host_admin_id=$ADMIN1_ID" \
+  -F "purpose=Loan enquiry" -F "company=Kiara Global Services" -F "host_admin_id=$ADMIN1_ID" \
   -F 'companions=[{"name":"Lakshmi"},{"name":"Arun"}]' \
   -F "companion_photos=@$D/m1.jpg" -F "companion_photos=@$D/m2.jpg")
 check "visit created" "$code" "201"
@@ -80,6 +80,7 @@ VISIT_ID=$(firstid "$D/visit.json")
 needid "visit id captured" "$VISIT_ID"
 grep -q '"status":"PENDING"' "$D/visit.json" && ok "visit is PENDING" || bad "visit PENDING" "$(head -c 200 "$D/visit.json")"
 grep -q '"companion_count":2' "$D/visit.json" && ok "2 companions attached" || bad "companions" "$(head -c 300 "$D/visit.json")"
+grep -q '"company":"Kiara Global Services"' "$D/visit.json" && ok "company stored and returned" || bad "company" "$(head -c 400 "$D/visit.json")"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
   -F "full_name=No Photo" -F "host_name=Someone")
@@ -95,6 +96,7 @@ echo "=== 5. Repeat visitor lookup ==="
 curl -s -b "$D/g.txt" "$API/visitors/lookup?phone=9876543210" > "$D/lk.json"
 grep -q '"found":true' "$D/lk.json" && ok "repeat visitor found" || bad "lookup" "$(cat "$D/lk.json")"
 grep -q 'Suresh Kumar' "$D/lk.json" && ok "prefill has name" || bad "prefill name" "$(cat "$D/lk.json")"
+grep -q 'Kiara Global Services' "$D/lk.json" && ok "prefill has company" || bad "prefill company" "$(cat "$D/lk.json")"
 curl -s -b "$D/g.txt" "$API/visitors/lookup?phone=9999999999" > "$D/lk2.json"
 grep -q '"found":false' "$D/lk2.json" && ok "unknown phone returns not found" || bad "unknown phone" "$(cat "$D/lk2.json")"
 
@@ -184,11 +186,14 @@ curl -s -b "$D/su.txt" "$API/admin/visits?status=REJECTED" > "$D/fv.json"
 grep -q "$V2" "$D/fv.json" && ok "status filter works" || bad "status filter" ""
 grep -q "$VISIT_ID" "$D/fv.json" && bad "status filter" "returned a non-rejected visit" || ok "status filter excludes others"
 curl -s -b "$D/su.txt" "$API/admin/visits?q=Suresh" | grep -q "$VISIT_ID" && ok "search by name" || bad "search" ""
+curl -s -b "$D/su.txt" "$API/admin/visits?q=Kiara" | grep -q "$VISIT_ID" && ok "search by company" || bad "search company" ""
 curl -s -b "$D/su.txt" "$API/admin/visits?approved_by=$ADMIN1_ID" > "$D/fa.json"
 grep -q '"total"' "$D/fa.json" && ok "approved_by filter accepted" || bad "approved_by" ""
 curl -s -b "$D/su.txt" "$API/admin/report/daily?format=csv" > "$D/r.csv"
 head -1 "$D/r.csv" | grep -q 'Visit ID' && ok "CSV export has header" || bad "csv" "$(head -1 "$D/r.csv")"
 grep -q 'Suresh Kumar' "$D/r.csv" && ok "CSV contains visit rows" || bad "csv rows" ""
+head -1 "$D/r.csv" | grep -q 'Company' && ok "CSV has Company column" || bad "csv company header" "$(head -1 "$D/r.csv")"
+grep -q 'Kiara Global Services' "$D/r.csv" && ok "CSV includes company value" || bad "csv company value" ""
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/report/daily"); check "admin blocked from reports" "$code" "403"
 
 echo "=== 16. Notifications ==="

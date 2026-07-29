@@ -13,6 +13,7 @@ const VISIT_SELECT = `
     v.id,
     v.status,
     v.purpose,
+    v.company,
     v.photo_path,
     v.host_admin_id,
     v.host_name,
