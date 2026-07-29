@@ -46,7 +46,41 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
-## 2026-07-29 — Visitor company
+## 2026-07-29 — Real-time updates (SSE)
+
+Screens now update the instant something changes — no manual refresh. A new request appears on
+every admin's approvals screen live, and the security gate flips to Approved/Rejected the moment an
+admin decides.
+
+- `lib/events.js` — in-process event bus (single PM2 instance, so a plain EventEmitter suffices).
+- `routes/events.js` — authenticated `GET /api/events` SSE stream, role/user-scoped, `X-Accel-
+  Buffering: no` so it streams through the shared nginx with no config change, 25s keepalive ping.
+- Published after commit on visit create / decision / check-in / check-out, on unattended
+  escalation (sweeper), and for every notification recipient.
+- `web/src/lib/live.jsx` — one EventSource for the app, `useLiveEvent` hook. Wired into the
+  approvals queue, gate screen, header bell badge, and the notification centre. Existing polling
+  stays as a fallback, so a dropped connection degrades gracefully rather than going stale.
+
+Verified: the e2e suite (now 106 cases) opens an admin SSE stream, has a guard create a visit, and
+asserts the stream receives `approvals_changed` and `notification` within a second — then a decision
+emits the next event. Also confirmed in-browser: a visit created out-of-band appeared on the admin's
+queue with no reload and lit the bell.
+
+## 2026-07-29 — "Visiting from" is now a category + detail
+
+Replaced the single free-text company field (added earlier the same day, no production data) with a
+**type** — Company / Private / Government Entity — plus a detail naming the specific company or
+entity. `006_visit_from_type.sql` renames `company` → `from_detail` and adds `from_type`.
+
+- Company and Government require the detail ("which company / which entity"); Private does not.
+- The gate form shows the detail field only once a type is chosen, with a per-type label and
+  placeholder. Surfaced on the approval card, console list + detail, CSV (two columns: "Visiting
+  From" and "From (Company/Entity)"), the SharePoint manifest, console search, the notification body,
+  and repeat-visitor prefill — all via one shared `fromDisplay()` helper so they never diverge.
+
+Deployed and live. e2e covers all three types, the required-detail rules, prefill, search and CSV.
+
+## 2026-07-29 — Visitor company (superseded same day by the category + detail change above)
 
 Captures the company/organisation each visitor is visiting from — `005_visit_company.sql` adds
 `visits.company` (optional text, per-visit so a repeat visitor can attend for a different company).

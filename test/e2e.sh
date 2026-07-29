@@ -72,7 +72,7 @@ const sharp=require('$ROOT/server/node_modules/sharp');
 "
 code=$(curl -s -o "$D/visit.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
   -F "photo=@$D/p.jpg" -F "full_name=Suresh Kumar" -F "phone=9876543210" \
-  -F "purpose=Loan enquiry" -F "company=Kiara Global Services" -F "host_admin_id=$ADMIN1_ID" \
+  -F "purpose=Loan enquiry" -F "from_type=COMPANY" -F "from_detail=Kiara Global Services" -F "host_admin_id=$ADMIN1_ID" \
   -F 'companions=[{"name":"Lakshmi"},{"name":"Arun"}]' \
   -F "companion_photos=@$D/m1.jpg" -F "companion_photos=@$D/m2.jpg")
 check "visit created" "$code" "201"
@@ -80,7 +80,25 @@ VISIT_ID=$(firstid "$D/visit.json")
 needid "visit id captured" "$VISIT_ID"
 grep -q '"status":"PENDING"' "$D/visit.json" && ok "visit is PENDING" || bad "visit PENDING" "$(head -c 200 "$D/visit.json")"
 grep -q '"companion_count":2' "$D/visit.json" && ok "2 companions attached" || bad "companions" "$(head -c 300 "$D/visit.json")"
-grep -q '"company":"Kiara Global Services"' "$D/visit.json" && ok "company stored and returned" || bad "company" "$(head -c 400 "$D/visit.json")"
+grep -q '"from_type":"COMPANY"' "$D/visit.json" && ok "from_type stored" || bad "from_type" "$(head -c 500 "$D/visit.json")"
+grep -q '"from_detail":"Kiara Global Services"' "$D/visit.json" && ok "from_detail stored" || bad "from_detail" "$(head -c 500 "$D/visit.json")"
+grep -q '"from_display":"Kiara Global Services"' "$D/visit.json" && ok "from_display computed" || bad "from_display" "$(head -c 500 "$D/visit.json")"
+
+# Company must name which company; Government likewise. Private need not.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Missing Detail" -F "from_type=COMPANY" -F "host_name=Someone")
+check "company without detail rejected" "$code" "400"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Bad Type" -F "from_type=NONSENSE" -F "host_name=Someone")
+check "invalid from_type rejected" "$code" "400"
+code=$(curl -s -o "$D/vpriv.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Private Person" -F "from_type=PRIVATE" -F "host_name=Reception")
+check "private without detail accepted" "$code" "201"
+grep -q '"from_display":"Private"' "$D/vpriv.json" && ok "private shows as Private" || bad "private display" "$(head -c 400 "$D/vpriv.json")"
+code=$(curl -s -o "$D/vgov.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Officer Rao" -F "from_type=GOVERNMENT" -F "from_detail=Income Tax Dept" -F "host_name=MD Office")
+check "government with detail accepted" "$code" "201"
+grep -q '"from_display":"Income Tax Dept"' "$D/vgov.json" && ok "government display is the entity" || bad "gov display" "$(head -c 400 "$D/vgov.json")"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
   -F "full_name=No Photo" -F "host_name=Someone")
@@ -96,9 +114,30 @@ echo "=== 5. Repeat visitor lookup ==="
 curl -s -b "$D/g.txt" "$API/visitors/lookup?phone=9876543210" > "$D/lk.json"
 grep -q '"found":true' "$D/lk.json" && ok "repeat visitor found" || bad "lookup" "$(cat "$D/lk.json")"
 grep -q 'Suresh Kumar' "$D/lk.json" && ok "prefill has name" || bad "prefill name" "$(cat "$D/lk.json")"
-grep -q 'Kiara Global Services' "$D/lk.json" && ok "prefill has company" || bad "prefill company" "$(cat "$D/lk.json")"
+grep -q '"from_type":"COMPANY"' "$D/lk.json" && ok "prefill has from_type" || bad "prefill from_type" "$(cat "$D/lk.json")"
+grep -q 'Kiara Global Services' "$D/lk.json" && ok "prefill has from_detail" || bad "prefill from_detail" "$(cat "$D/lk.json")"
 curl -s -b "$D/g.txt" "$API/visitors/lookup?phone=9999999999" > "$D/lk2.json"
 grep -q '"found":false' "$D/lk2.json" && ok "unknown phone returns not found" || bad "unknown phone" "$(cat "$D/lk2.json")"
+
+echo "=== 5b. Real-time SSE ==="
+# Open an admin's event stream in the background, create a visit as security,
+# and confirm the admin's stream receives the live event within a second.
+code=$(curl -s -o /dev/null -w '%{http_code}' "$API/events"); check "SSE requires auth" "$code" "401"
+
+: > "$D/sse.log"
+curl -s -N -b "$D/a1.txt" -H 'Accept: text/event-stream' --max-time 6 "$API/events" > "$D/sse.log" 2>/dev/null &
+SSE_PID=$!
+sleep 1  # let the stream connect and register its listener
+curl -s -o /dev/null -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=Live Ping" -F "host_admin_id=$ADMIN1_ID"
+# Give the event a moment to travel, then decide it to emit a second event type.
+sleep 1
+LIVE_ID=$(psql -qtAX -d "$DB" -c "SELECT v.id FROM visits v JOIN visitors vis ON vis.id=v.visitor_id WHERE vis.full_name='Live Ping' ORDER BY v.created_at DESC LIMIT 1")
+curl -s -o /dev/null -b "$D/a1.txt" -X POST "$API/visits/$LIVE_ID/approve" 2>/dev/null
+sleep 1
+wait $SSE_PID 2>/dev/null
+grep -q 'event: approvals_changed' "$D/sse.log" && ok "admin stream got approvals_changed live" || bad "sse approvals" "$(head -c 200 "$D/sse.log")"
+grep -q 'event: notification' "$D/sse.log" && ok "admin stream got notification live" || bad "sse notification" "$(head -c 200 "$D/sse.log")"
 
 echo "=== 6. Photo access control ==="
 PHOTO=$(sed -n 's/.*"photo_path":"\([^"]*\)".*/\1/p' "$D/visit.json" | head -1)
@@ -186,14 +225,15 @@ curl -s -b "$D/su.txt" "$API/admin/visits?status=REJECTED" > "$D/fv.json"
 grep -q "$V2" "$D/fv.json" && ok "status filter works" || bad "status filter" ""
 grep -q "$VISIT_ID" "$D/fv.json" && bad "status filter" "returned a non-rejected visit" || ok "status filter excludes others"
 curl -s -b "$D/su.txt" "$API/admin/visits?q=Suresh" | grep -q "$VISIT_ID" && ok "search by name" || bad "search" ""
-curl -s -b "$D/su.txt" "$API/admin/visits?q=Kiara" | grep -q "$VISIT_ID" && ok "search by company" || bad "search company" ""
+curl -s -b "$D/su.txt" "$API/admin/visits?q=Kiara" | grep -q "$VISIT_ID" && ok "search by from-detail" || bad "search from-detail" ""
 curl -s -b "$D/su.txt" "$API/admin/visits?approved_by=$ADMIN1_ID" > "$D/fa.json"
 grep -q '"total"' "$D/fa.json" && ok "approved_by filter accepted" || bad "approved_by" ""
 curl -s -b "$D/su.txt" "$API/admin/report/daily?format=csv" > "$D/r.csv"
 head -1 "$D/r.csv" | grep -q 'Visit ID' && ok "CSV export has header" || bad "csv" "$(head -1 "$D/r.csv")"
 grep -q 'Suresh Kumar' "$D/r.csv" && ok "CSV contains visit rows" || bad "csv rows" ""
-head -1 "$D/r.csv" | grep -q 'Company' && ok "CSV has Company column" || bad "csv company header" "$(head -1 "$D/r.csv")"
-grep -q 'Kiara Global Services' "$D/r.csv" && ok "CSV includes company value" || bad "csv company value" ""
+head -1 "$D/r.csv" | grep -q 'Visiting From' && ok "CSV has Visiting From column" || bad "csv from header" "$(head -1 "$D/r.csv")"
+grep -q 'Kiara Global Services' "$D/r.csv" && ok "CSV includes from-detail value" || bad "csv from value" ""
+grep -q 'Income Tax Dept' "$D/r.csv" && ok "CSV includes a government entity" || bad "csv gov value" ""
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/report/daily"); check "admin blocked from reports" "$code" "403"
 
 echo "=== 16. Notifications ==="

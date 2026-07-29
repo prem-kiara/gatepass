@@ -49,6 +49,7 @@ app.use('/api/approvals', approvalsRouter);
 // belongs to the visit. Mounted after the visits router so its own routes match first.
 app.use('/api/visits', approvalsRouter);
 app.use('/api/photos', require('./routes/photos'));
+app.use('/api/events', require('./routes/events'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin', require('./routes/admin'));
 

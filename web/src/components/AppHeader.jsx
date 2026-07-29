@@ -3,6 +3,7 @@ import L from '../labels';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
 import { usePoll } from '../lib/usePoll';
+import { useLiveEvent } from '../lib/live';
 import NotificationCenter from './NotificationCenter';
 
 const UNREAD_POLL_MS = 20000;
@@ -18,6 +19,9 @@ export default function AppHeader({ title, right }) {
   const fetchUnread = useCallback(() => api.get('/api/notifications/unread-count'), []);
   const { data, reload } = usePoll(fetchUnread, UNREAD_POLL_MS, []);
   const unread = (data && data.unread) || 0;
+
+  // The badge jumps the moment a notification is created for this user.
+  useLiveEvent('notification', () => reload({ silent: true }).catch(() => {}));
 
   return (
     <>

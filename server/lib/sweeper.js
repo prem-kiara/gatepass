@@ -15,6 +15,7 @@
 const config = require('../config');
 const { query, withTransaction } = require('../db');
 const notify = require('./notify');
+const events = require('./events');
 
 const INTERVAL_MS = 60 * 1000;
 const MAX_PUSH_ATTEMPTS = 5;
@@ -38,6 +39,7 @@ async function escalateUnattended() {
     try {
       const created = await withTransaction((client) => notify.visitUnattended(client, visit));
       notify.scheduleDelivery(created);
+      events.approvalsChanged({ visitId: visit.id, action: 'unattended' });
       console.log(`[sweeper] escalated unattended visit ${visit.id} (${visit.full_name})`);
     } catch (err) {
       console.error(`[sweeper] escalation failed for ${visit.id}: ${err.message}`);

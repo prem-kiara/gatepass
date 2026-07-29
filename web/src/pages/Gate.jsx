@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import L from '../labels';
 import { gate } from '../lib/api';
 import { usePoll } from '../lib/usePoll';
+import { useLiveEvent } from '../lib/live';
 import { formatTime, STATUS_DOT } from '../lib/format';
 import AppHeader from '../components/AppHeader';
 import NewVisitorFlow from '../components/NewVisitorFlow';
@@ -120,6 +121,10 @@ export default function Gate() {
     },
     [reload]
   );
+
+  // Real-time: the moment an admin approves/rejects (or a group is checked in/out
+  // on another gate device), refresh — no waiting for the 10s poll.
+  useLiveEvent('gate_changed', () => reload({ silent: true }).catch(() => {}));
 
   const visits = (data && data.visits) || [];
 

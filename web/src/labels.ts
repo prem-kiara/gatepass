@@ -78,9 +78,26 @@ export const L = {
     phoneHint: 'Optional — 10 digits',
     purpose: 'Purpose of visit',
     purposePlaceholder: 'e.g. Loan enquiry',
-    company: 'Visiting from (company)',
-    companyPlaceholder: 'e.g. Kiara Global Services',
-    companyHint: 'Company or organisation the visitor represents',
+    from: {
+      label: 'Visiting from',
+      none: 'Select…',
+      types: {
+        COMPANY: 'Company',
+        PRIVATE: 'Private',
+        GOVERNMENT: 'Government entity',
+      } as Record<string, string>,
+      // The follow-up field shown once a type is chosen.
+      detailLabel: {
+        COMPANY: 'Which company?',
+        PRIVATE: 'Name / details',
+        GOVERNMENT: 'Which government entity?',
+      } as Record<string, string>,
+      detailPlaceholder: {
+        COMPANY: 'e.g. Kiara Global Services',
+        PRIVATE: 'Optional',
+        GOVERNMENT: 'e.g. Income Tax Department',
+      } as Record<string, string>,
+    },
     whomToVisit: 'Whom have they come to see?',
     selectHost: 'Select a person',
     otherHost: 'Other (type a name)',

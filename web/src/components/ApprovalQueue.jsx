@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import L from '../labels';
 import { approvals } from '../lib/api';
 import { usePoll } from '../lib/usePoll';
+import { useLiveEvent } from '../lib/live';
 import { formatTime, formatDuration } from '../lib/format';
 import {
   StatusBadge, PhotoThumb, Lightbox, useLightbox, LoadingBlock,
@@ -37,7 +38,7 @@ function PendingCard({ visit, onDecide, busy, onOpenPhoto }) {
               {visit.phone} <span className="text-xs text-slate-500">({L.approvals.tapToCall})</span>
             </a>
           )}
-          {visit.company && <Row label={L.gate.company}>{visit.company}</Row>}
+          {visit.from_display && <Row label={L.gate.from.label}>{visit.from_display}</Row>}
           <Row label={L.gate.visiting}>{visit.host_display}</Row>
           {visit.purpose && <Row label={L.gate.purpose}>{visit.purpose}</Row>}
           <Row label={L.approvals.loggedBy}>
@@ -130,6 +131,13 @@ export default function ApprovalQueue({ onCountChange }) {
 
   const pending = usePoll(fetchPending, POLL_MS, []);
   const history = usePoll(approvals.history, 60000, []);
+
+  // Real-time: refresh the queue the instant the server says it changed, instead
+  // of waiting for the next poll. Polling above remains the fallback.
+  useLiveEvent('approvals_changed', () => {
+    pending.reload({ silent: true }).catch(() => {});
+    history.reload({ silent: true }).catch(() => {});
+  });
 
   const decide = useCallback(
     async (visit, kind, withReason) => {

@@ -84,6 +84,24 @@ The case that matters most is the approval race: two admins `POST /approve` on t
 concurrently, and the suite asserts one 200, one 409, exactly one `approved_by` stamped, and
 exactly one `APPROVED` row in `visit_events`. If you touch the decision path, run this.
 
+## Real-time updates (Server-Sent Events)
+
+Screens update the instant something changes, without a manual refresh. `GET /api/events` is an
+authenticated SSE stream; `lib/events.js` is an in-process bus that fans out to every open stream.
+
+- Events are **hints, not state**: `approvals_changed`, `gate_changed`, `notification`. The client
+  reacts by re-fetching the relevant endpoint (`web/src/lib/live.jsx` → `useLiveEvent`). A missed
+  event self-heals on the next one, and the existing polling stays as a fallback — so a dropped SSE
+  connection degrades to "updates a few seconds slower", never "stuck".
+- Scope: `approvals_changed` → ADMIN/SUPERADMIN, `gate_changed` → SECURITY, `notification` →
+  specific user ids. A connection receives an event if its role or id matches.
+- Published **after** the DB commit (in the routes and the sweeper), so a client that re-fetches on
+  the hint always sees committed state.
+- **Single PM2 instance** is assumed — a plain EventEmitter reaches every connection. Running
+  multiple instances would need a shared pub/sub behind `lib/events.js`; nothing else would change.
+- No nginx change was needed: the response sets `X-Accel-Buffering: no` (nginx streams it through
+  unbuffered) and pings every 25s to stay under the 120s proxy read timeout.
+
 ## Notifications
 
 Two layers, and the distinction matters:

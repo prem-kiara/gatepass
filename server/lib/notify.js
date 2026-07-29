@@ -15,6 +15,7 @@
 
 const { query } = require('../db');
 const push = require('./push');
+const events = require('./events');
 
 /** Who should see approval requests: every active admin plus the superadmin. */
 async function approverIds(client) {
@@ -46,6 +47,10 @@ async function createFor(client, userIds, { type, title, body, visitId, url, dat
  */
 async function deliver(created) {
   if (!created || created.length === 0) return;
+
+  // Live badge/list update for every recipient with an open app, independent of
+  // whether the phone-shade push succeeds.
+  events.notificationFor([...new Set(created.map((c) => c.user_id))]);
 
   await Promise.all(
     created.map(async ({ id, user_id: userId }) => {
@@ -102,12 +107,12 @@ async function visitPending(client, visit) {
     type: 'VISIT_PENDING',
     title: 'New visitor at the gate',
     body:
-      `${visit.full_name}${visit.company ? ` (${visit.company})` : ''}` +
+      `${visit.full_name}${visit.from_display ? ` (${visit.from_display})` : ''}` +
       `${groupSuffix(visit.companion_count)} to see ${visit.host_display}` +
       `${visit.purpose ? ` — ${visit.purpose}` : ''}`,
     visitId: visit.id,
     url: '/approvals',
-    data: { logged_by: visit.logged_by_name, company: visit.company },
+    data: { logged_by: visit.logged_by_name, from: visit.from_display },
   });
 }
 

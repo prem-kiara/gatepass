@@ -73,7 +73,7 @@ function VisitRow({ visit, onOpenPhoto }) {
               )}
             </div>
             <p className="truncate text-sm text-slate-600">
-              {visit.company ? `${visit.company} · ` : ''}
+              {visit.from_display ? `${visit.from_display} · ` : ''}
               {visit.phone || '—'} · {L.gate.visiting}: {visit.host_display}
             </p>
             <p className="text-sm text-slate-500">
@@ -114,7 +114,7 @@ function VisitRow({ visit, onOpenPhoto }) {
           </div>
 
           <div className="grid gap-1 text-sm sm:grid-cols-2">
-            <p><span className="text-slate-500">{L.gate.company}:</span> {visit.company || '—'}</p>
+            <p><span className="text-slate-500">{L.gate.from.label}:</span> {visit.from_display || '—'}</p>
             <p><span className="text-slate-500">{L.gate.purpose}:</span> {visit.purpose || '—'}</p>
             <p><span className="text-slate-500">{L.approvals.loggedBy}:</span> {visit.logged_by_name}</p>
             <p><span className="text-slate-500">{L.gate.checkIn}:</span> {visit.checked_in_at ? formatTime(visit.checked_in_at) : '—'}</p>

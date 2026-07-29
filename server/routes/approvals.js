@@ -8,6 +8,7 @@ const { requireRole } = require('../middleware/requireRole');
 const { str, uuid } = require('../lib/validate');
 const { VISIT_SELECT, decorate } = require('../lib/visitQueries');
 const notify = require('../lib/notify');
+const events = require('../lib/events');
 
 const router = express.Router();
 const approvers = [requireAuth, requireRole('ADMIN', 'SUPERADMIN')];
@@ -96,7 +97,13 @@ async function decide(req, res, next, { status, action, reason }) {
       return true;
     });
 
-    if (won) notify.scheduleDelivery(queuedNotifications);
+    if (won) {
+      notify.scheduleDelivery(queuedNotifications);
+      // The card leaves every admin's queue, and the guard's gate screen flips
+      // to the decision — refresh both, live.
+      events.approvalsChanged({ visitId, action: status });
+      events.gateChanged({ visitId, action: status });
+    }
 
     const { rows } = await query(`${VISIT_SELECT} WHERE v.id = $1`, [visitId]);
     if (rows.length === 0) {

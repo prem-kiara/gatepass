@@ -17,7 +17,8 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [company, setCompany] = useState('');
+  const [fromType, setFromType] = useState('');
+  const [fromDetail, setFromDetail] = useState('');
   const [hostId, setHostId] = useState('');
   const [hostName, setHostName] = useState('');
   const [members, setMembers] = useState([]);
@@ -56,7 +57,8 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
         // Only fill blanks — never overwrite what the guard already typed.
         setFullName((current) => current || visitor.full_name || '');
         setPurpose((current) => current || visitor.purpose || '');
-        setCompany((current) => current || visitor.company || '');
+        setFromType((current) => current || visitor.from_type || '');
+        setFromDetail((current) => current || visitor.from_detail || '');
         setHostId((current) => current || visitor.host_admin_id || '');
         if (!visitor.host_admin_id && visitor.host_name) {
           setHostId((current) => current || OTHER);
@@ -74,8 +76,13 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
     setMembers((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeMember = (id) => setMembers((m) => m.filter((x) => x.id !== id));
 
+  // Company and Government must name which one; Private need not.
+  const fromValid =
+    !fromType || fromType === 'PRIVATE' || fromDetail.trim().length > 0;
   const detailsValid =
-    fullName.trim().length > 0 && (hostId === OTHER ? hostName.trim().length > 0 : hostId.length > 0);
+    fullName.trim().length > 0 &&
+    fromValid &&
+    (hostId === OTHER ? hostName.trim().length > 0 : hostId.length > 0);
   const membersValid = members.every((m) => m.name.trim() && m.photo);
 
   const submit = async () => {
@@ -87,7 +94,10 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
       form.append('full_name', fullName.trim());
       if (phone.trim()) form.append('phone', phone.trim());
       if (purpose.trim()) form.append('purpose', purpose.trim());
-      if (company.trim()) form.append('company', company.trim());
+      if (fromType) {
+        form.append('from_type', fromType);
+        if (fromDetail.trim()) form.append('from_detail', fromDetail.trim());
+      }
       if (hostId === OTHER) form.append('host_name', hostName.trim());
       else form.append('host_admin_id', hostId);
 
@@ -182,17 +192,35 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
               </div>
 
               <div>
-                <label className="label" htmlFor="v-company">
-                  {L.gate.company} <span className="font-normal text-slate-500">({L.optional})</span>
+                <label className="label" htmlFor="v-from-type">
+                  {L.gate.from.label} <span className="font-normal text-slate-500">({L.optional})</span>
                 </label>
-                <input
-                  id="v-company"
+                <select
+                  id="v-from-type"
                   className="field"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  placeholder={L.gate.companyPlaceholder}
-                  autoComplete="off"
-                />
+                  value={fromType}
+                  onChange={(e) => {
+                    setFromType(e.target.value);
+                    setFromDetail(''); // clear the detail when the category changes
+                  }}
+                >
+                  <option value="">{L.gate.from.none}</option>
+                  {['COMPANY', 'PRIVATE', 'GOVERNMENT'].map((t) => (
+                    <option key={t} value={t}>{L.gate.from.types[t]}</option>
+                  ))}
+                </select>
+
+                {fromType && (
+                  <input
+                    id="v-from-detail"
+                    className="field mt-3"
+                    value={fromDetail}
+                    onChange={(e) => setFromDetail(e.target.value)}
+                    placeholder={L.gate.from.detailPlaceholder[fromType]}
+                    aria-label={L.gate.from.detailLabel[fromType]}
+                    autoComplete="off"
+                  />
+                )}
               </div>
 
               <div>

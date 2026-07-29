@@ -20,11 +20,12 @@ router.get('/lookup', requireAuth, requireRole('SECURITY'), async (req, res, nex
 
     const { rows } = await query(
       `SELECT vis.id, vis.full_name, vis.phone,
-              last.purpose, last.company, last.host_admin_id, last.host_name, last.created_at AS last_visit_at,
+              last.purpose, last.from_type, last.from_detail, last.host_admin_id, last.host_name,
+              last.created_at AS last_visit_at,
               (SELECT count(*) FROM visits v2 WHERE v2.visitor_id = vis.id)::int AS visit_count
        FROM visitors vis
        LEFT JOIN LATERAL (
-         SELECT purpose, company, host_admin_id, host_name, created_at
+         SELECT purpose, from_type, from_detail, host_admin_id, host_name, created_at
          FROM visits WHERE visitor_id = vis.id
          ORDER BY created_at DESC LIMIT 1
        ) last ON true

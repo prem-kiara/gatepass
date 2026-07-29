@@ -6,10 +6,11 @@ const { query, withTransaction } = require('../db');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
-const { str, normalizePhone, uuid, ValidationError } = require('../lib/validate');
+const { str, normalizePhone, uuid, oneOf, ValidationError } = require('../lib/validate');
 const { storePhoto, deletePhotos } = require('../lib/photos');
-const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
+const { VISIT_SELECT, todayClause, decorate, fromDisplay } = require('../lib/visitQueries');
 const notify = require('../lib/notify');
+const events = require('../lib/events');
 
 const router = express.Router();
 
@@ -89,7 +90,19 @@ router.post(
       const fullName = str(req.body.full_name, 'Visitor name', { required: true, max: 150 });
       const phone = normalizePhone(req.body.phone, 'Phone number');
       const purpose = str(req.body.purpose, 'Purpose', { max: 500 });
-      const company = str(req.body.company, 'Company', { max: 200 });
+      // Where the visitor is from: a category, plus a detail naming the specific
+      // company or entity. Company and Government must say which; Private need not.
+      const fromType = oneOf(req.body.from_type, 'Visiting from', ['COMPANY', 'PRIVATE', 'GOVERNMENT']);
+      const fromDetail = str(req.body.from_detail, 'Details', { max: 200 });
+      if (fromDetail && !fromType) {
+        throw new ValidationError('Choose whether this is a company, private or government visit.', 'from_type');
+      }
+      if ((fromType === 'COMPANY' || fromType === 'GOVERNMENT') && !fromDetail) {
+        throw new ValidationError(
+          fromType === 'COMPANY' ? 'Enter which company.' : 'Enter which government entity.',
+          'from_detail'
+        );
+      }
       const hostAdminId = uuid(req.body.host_admin_id, 'Host');
       const hostName = str(req.body.host_name, 'Host name', { max: 150 });
 
@@ -127,10 +140,10 @@ router.post(
 
         const { rows } = await client.query(
           `INSERT INTO visits
-             (visitor_id, photo_path, purpose, company, host_admin_id, host_name, logged_by, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
+             (visitor_id, photo_path, purpose, from_type, from_detail, host_admin_id, host_name, logged_by, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
            RETURNING id`,
-          [visitorId, primaryPhoto, purpose, company, hostAdminId, hostAdminId ? null : hostName, req.user.id]
+          [visitorId, primaryPhoto, purpose, fromType, fromDetail, hostAdminId, hostAdminId ? null : hostName, req.user.id]
         );
         const id = rows[0].id;
 
@@ -153,7 +166,8 @@ router.post(
               visitor_name: fullName,
               phone,
               purpose,
-              company,
+              from_type: fromType,
+              from_detail: fromDetail,
               companions: companionNames.length,
               host: hostAdminId ? { admin_id: hostAdminId } : { name: hostName },
             }),
@@ -167,7 +181,7 @@ router.post(
           full_name: fullName,
           host_display: hostDisplay,
           purpose,
-          company,
+          from_display: fromDisplay(fromType, fromDetail),
           companion_count: companionNames.length,
           logged_by_name: req.user.name,
         });
@@ -180,6 +194,8 @@ router.post(
 
       // Push only after the commit, and without blocking the response.
       notify.scheduleDelivery(queuedNotifications);
+      // Live: the shared pending queue just gained a request.
+      events.approvalsChanged({ visitId, action: 'created' });
       res.status(201).json({ visit });
     } catch (err) {
       // The photos are already on disk but the row never landed — do not leave orphans.
@@ -229,7 +245,11 @@ async function transition(req, res, next, { from, to, setSql, action, notifyFn }
       return rows[0].id;
     });
 
-    if (updated) notify.scheduleDelivery(queuedNotifications);
+    if (updated) {
+      notify.scheduleDelivery(queuedNotifications);
+      // Check-in / check-out changed a visit's status — refresh gate screens live.
+      events.gateChanged({ visitId, action });
+    }
 
     const { rows } = await query(`${VISIT_SELECT} WHERE v.id = $1`, [visitId]);
     if (rows.length === 0) {

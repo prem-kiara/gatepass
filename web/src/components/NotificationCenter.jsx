@@ -4,6 +4,7 @@ import L from '../labels';
 import { api } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { pushSupport, enablePush, sendTestPush, resyncSubscription } from '../lib/push';
+import { useLiveEvent } from '../lib/live';
 import { LoadingBlock, EmptyState, ErrorBanner, Spinner, Toast } from './ui';
 
 const PAGE = 30;
@@ -123,6 +124,9 @@ export default function NotificationCenter({ onClose, onChanged }) {
   useEffect(() => {
     resyncSubscription();
   }, []);
+
+  // A new notification arrives while the panel is open — pull it to the top.
+  useLiveEvent('notification', () => load(0, false));
 
   const open = async (n) => {
     if (!n.read_at) {
