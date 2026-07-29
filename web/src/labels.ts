@@ -58,6 +58,51 @@ export const L = {
     pinMismatch: 'The two PINs do not match.',
     savePin: 'Save PIN',
     pinSaved: 'PIN saved.',
+
+    // Biometric sign-in (admins)
+    useBiometric: 'Sign in with Face ID / fingerprint',
+    biometricFailed: 'Biometric sign-in didn’t work. Use your password.',
+    biometricCancelled: 'Biometric sign-in was cancelled.',
+  },
+
+  // --- account settings ---
+  settings: {
+    title: 'Sign-in & security',
+    open: 'Settings',
+    pinSection: 'Gate PIN',
+    pinHasSet: 'You have a PIN set for gate sign-in.',
+    pinNotSet: 'You have no PIN yet.',
+    setPin: 'Set a PIN',
+    changePin: 'Change PIN',
+    currentPin: 'Current PIN',
+    newPin: 'New PIN',
+    confirmPin: 'Confirm new PIN',
+    pinSaved: 'PIN saved.',
+    pinMismatch: 'The two PINs do not match.',
+
+    biometricSection: 'Biometric (Face ID / fingerprint)',
+    biometricWhat: 'Add this phone so you can sign in with Face ID or your fingerprint.',
+    biometricAdd: 'Enable on this device',
+    biometricAdding: 'Follow the prompt…',
+    biometricAdded: 'Biometric enabled on this device.',
+    biometricUnsupported: 'This device or browser doesn’t support biometric sign-in.',
+    biometricFailed: 'Could not enable biometric. Please try again.',
+    devicesTitle: 'Your devices',
+    noDevices: 'No devices added yet.',
+    added: 'Added',
+    lastUsed: 'Last used',
+    never: 'never',
+    removeDevice: 'Remove',
+    confirmRemove: 'Remove this device? You won’t be able to sign in with its biometric anymore.',
+    deviceRemoved: 'Device removed.',
+
+    passwordSection: 'Password',
+    changePassword: 'Change password',
+    currentPassword: 'Current password',
+    newPassword: 'New password',
+    passwordSaved: 'Password changed.',
+
+    back: 'Back',
   },
 
   // --- roles ---

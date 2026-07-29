@@ -36,6 +36,13 @@ export function AuthProvider({ children }) {
     return me;
   }, []);
 
+  const loginPasskey = useCallback(async () => {
+    const { loginWithPasskey } = await import('./passkey');
+    const { user: me } = await loginWithPasskey();
+    setUser(me);
+    return me;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
@@ -45,7 +52,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginPin, logout, refresh, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginPin, loginPasskey, logout, refresh, setUser }}>
       {children}
     </AuthContext.Provider>
   );

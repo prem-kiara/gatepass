@@ -45,6 +45,7 @@ export const api = {
   get: (path, opts) => request(path, opts),
   post: (path, body, opts) => request(path, { ...opts, method: 'POST', body }),
   patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body }),
+  del: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
 };
 
 export const auth = {
@@ -56,6 +57,8 @@ export const auth = {
   setPin: (newPin, currentPin) => api.post('/api/auth/pin', { newPin, currentPin }),
   changePassword: (currentPassword, newPassword) =>
     api.post('/api/auth/change-password', { currentPassword, newPassword }),
+  webauthnLoginOptions: () => api.post('/api/auth/webauthn/login/options'),
+  webauthnLoginVerify: (credential) => api.post('/api/auth/webauthn/login/verify', { credential }),
 };
 
 export const gate = {

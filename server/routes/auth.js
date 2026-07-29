@@ -8,6 +8,7 @@ const { signToken, setAuthCookie, clearAuthCookie, requireAuth } = require('../m
 const { str, uuid, ValidationError } = require('../lib/validate');
 const { validatePin, MAX_ATTEMPTS, LOCK_MINUTES } = require('../lib/pin');
 const { logAuth } = require('../lib/authlog');
+const webauthn = require('../lib/webauthn');
 
 const router = express.Router();
 
@@ -222,6 +223,80 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
 
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(next_, 12), req.user.id]);
     await logAuth({ userId: req.user.id, actorId: req.user.id, event: 'PASSWORD_CHANGED', req });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ---------------------------------------------------- passkeys (biometric) */
+
+// Registering a device requires you to already be signed in (so we know whose
+// device it is). Biometric is for the office roles; guards use a PIN.
+router.post('/webauthn/register/options', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role === 'SECURITY') {
+      throw new ValidationError('Biometric sign-in is for admin accounts. Guards use a PIN.', 'role');
+    }
+    res.json(await webauthn.registrationOptions(req.user, res));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/webauthn/register/verify', requireAuth, async (req, res, next) => {
+  try {
+    const result = await webauthn.verifyRegistration(req.user, req, res, req.body || {});
+    await logAuth({ userId: req.user.id, actorId: req.user.id, event: 'WEBAUTHN_REGISTERED', method: 'WEBAUTHN', req });
+    res.status(201).json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Signing in with a passkey is unauthenticated by definition — the passkey is
+// the proof. Discoverable credentials mean no username is typed.
+router.post('/webauthn/login/options', async (req, res, next) => {
+  try {
+    res.json(await webauthn.loginOptions(res));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/webauthn/login/verify', async (req, res, next) => {
+  try {
+    const user = await webauthn.verifyLogin(req, res, req.body || {});
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'ACCOUNT_INACTIVE', message: 'This account has been deactivated.' });
+    }
+    setAuthCookie(res, signToken(user));
+    await logAuth({ userId: user.id, actorId: user.id, event: 'LOGIN', method: 'WEBAUTHN', req });
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The user's own registered devices, and removing one (e.g. a lost phone).
+router.get('/webauthn/devices', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, device_label, created_at, last_used_at FROM webauthn_credentials WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json({ devices: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/webauthn/devices/:id', requireAuth, async (req, res, next) => {
+  try {
+    const id = uuid(req.params.id, 'Device', { required: true });
+    const { rowCount } = await query('DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such device.' });
+    await logAuth({ userId: req.user.id, actorId: req.user.id, event: 'WEBAUTHN_REMOVED', req });
     res.json({ ok: true });
   } catch (err) {
     next(err);

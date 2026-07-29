@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Gate from './pages/Gate';
 import Approvals from './pages/Approvals';
 import Console from './pages/Console';
+import Settings from './pages/Settings';
 
 function Protected({ roles, children }) {
   const { user, loading } = useAuth();
@@ -57,6 +58,14 @@ export default function App() {
         element={
           <Protected roles={['SUPERADMIN']}>
             <Console />
+          </Protected>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <Protected>
+            <Settings />
           </Protected>
         }
       />

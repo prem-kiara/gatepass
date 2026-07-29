@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import L from '../labels';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -14,6 +15,7 @@ const UNREAD_POLL_MS = 20000;
  */
 export default function AppHeader({ title, right }) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
 
   const fetchUnread = useCallback(() => api.get('/api/notifications/unread-count'), []);
@@ -37,6 +39,15 @@ export default function AppHeader({ title, right }) {
           </div>
 
           {right}
+
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            className="shrink-0 rounded-lg border border-brand-500 px-3 py-2 hover:bg-brand-700"
+            aria-label={L.settings.open}
+          >
+            <span className="text-lg" aria-hidden="true">⚙️</span>
+          </button>
 
           <button
             type="button"

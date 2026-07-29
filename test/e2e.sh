@@ -135,6 +135,26 @@ check "guard cannot read the audit log" "$code" "403"
 OUT=$(psql -qtAX -d "$DB" -c "DELETE FROM auth_events WHERE event='LOGIN_FAILED'" 2>&1)
 echo "$OUT" | grep -q "append-only" && ok "auth_events DELETE blocked by database" || bad "auth delete guard" "$OUT"
 
+echo "=== 3c. Passkeys (biometric) — endpoint wiring ==="
+# The ceremony itself needs a real authenticator; here we prove the endpoints are
+# present, correctly gated, and returning a challenge.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/webauthn/register/options")
+check "register options needs auth" "$code" "401"
+# A guard cannot register biometric (PIN is their credential).
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/webauthn/register/options")
+check "guard cannot register a passkey" "$code" "400"
+# An admin gets registration options with a challenge.
+curl -s -b "$D/a1.txt" -X POST "$API/auth/webauthn/register/options" > "$D/waro.json"
+grep -q '"challenge"' "$D/waro.json" && ok "admin gets registration options" || bad "wa reg options" "$(head -c 200 "$D/waro.json")"
+# Passwordless login options are public and carry a challenge.
+curl -s -X POST "$API/auth/webauthn/login/options" > "$D/walo.json"
+grep -q '"challenge"' "$D/walo.json" && ok "login options carry a challenge" || bad "wa login options" "$(head -c 200 "$D/walo.json")"
+# Device list is per-user and starts empty.
+curl -s -b "$D/a1.txt" "$API/auth/webauthn/devices" > "$D/wad.json"
+grep -q '"devices":\[\]' "$D/wad.json" && ok "admin has no devices yet" || bad "wa devices" "$(cat "$D/wad.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/webauthn/devices")
+check "device list needs auth" "$code" "401"
+
 echo "=== 4. Create visit with companions ==="
 node -e "
 const sharp=require('$ROOT/server/node_modules/sharp');

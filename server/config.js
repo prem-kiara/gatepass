@@ -46,6 +46,14 @@ module.exports = {
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:contact@dhanam.finance',
   },
+  // WebAuthn (passkeys / Face ID / fingerprint). rpId must be the registrable
+  // domain and origin its https URL. Defaults suit production; override for local
+  // dev (WEBAUTHN_RP_ID=localhost, WEBAUTHN_ORIGIN=http://localhost:3040).
+  webauthn: {
+    rpName: process.env.WEBAUTHN_RP_NAME || 'GatePass',
+    rpId: process.env.WEBAUTHN_RP_ID || 'gatepass.dhanamfinance.com',
+    origin: process.env.WEBAUTHN_ORIGIN || 'https://gatepass.dhanamfinance.com',
+  },
   maxCompanions: 10,
   maxPhotoBytes: 8 * 1024 * 1024,
   seed: {

@@ -106,11 +106,16 @@ function PinLogin({ onUsePassword }) {
 
 /** Password flow — the backup for everyone, and how admins/superadmin sign in. */
 function PasswordLogin({ onUsePin }) {
-  const { login } = useAuth();
+  const { login, loginPasskey } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [canBiometric, setCanBiometric] = useState(false);
+
+  useEffect(() => {
+    import('../lib/passkey').then((m) => setCanBiometric(m.passkeySupported())).catch(() => {});
+  }, []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -124,9 +129,31 @@ function PasswordLogin({ onUsePin }) {
     }
   };
 
+  const onBiometric = async () => {
+    setError(null);
+    try {
+      await loginPasskey();
+    } catch (err) {
+      // A user cancelling the Face ID sheet is not an error worth shouting about.
+      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return;
+      setError({ message: L.login.biometricFailed });
+    }
+  };
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <ErrorBanner error={error} />
+
+      {canBiometric && (
+        <>
+          <button type="button" onClick={onBiometric} className="btn-primary w-full text-lg">
+            🔐 {L.login.useBiometric}
+          </button>
+          <div className="flex items-center gap-3 text-sm text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" /> or <span className="h-px flex-1 bg-slate-200" />
+          </div>
+        </>
+      )}
       <div>
         <label className="label" htmlFor="username">{L.login.username}</label>
         <input
