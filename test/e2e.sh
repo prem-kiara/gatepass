@@ -64,6 +64,77 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/users")
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/visits/today"); check "admin blocked from gate log" "$code" "403"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/approvals/pending"); check "security blocked from approvals" "$code" "403"
 
+echo "=== 3b. Guard PIN sign-in ==="
+GUARD_ID=$(firstid "$D/u1.json")
+needid "guard id" "$GUARD_ID"
+# The name-picker lists only active security staff, id + name only.
+curl -s "$API/auth/gate-users" > "$D/gu.json"
+grep -q '"name":"Guard Ravi"' "$D/gu.json" && ok "picker lists the guard" || bad "picker" "$(cat "$D/gu.json")"
+grep -q 'Admin Meena' "$D/gu.json" && bad "picker excludes admins" "admins listed" || ok "picker excludes admins"
+
+# Guard sets a PIN (authenticated by password).
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"482913"}')
+check "guard sets a PIN" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"111111","currentPin":"482913"}')
+check "all-same PIN rejected" "$code" "400"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"123456","currentPin":"482913"}')
+check "sequential PIN rejected" "$code" "400"
+curl -s "$API/auth/gate-users" | grep -q '"has_pin":true' && ok "picker marks the guard as having a PIN" || bad "has_pin" ""
+
+# Wrong PIN fails; correct PIN signs in and can use the gate.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$GUARD_ID\",\"pin\":\"000000\"}")
+check "wrong PIN rejected" "$code" "401"
+code=$(curl -s -o "$D/pinlogin.json" -c "$D/gpin.txt" -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$GUARD_ID\",\"pin\":\"482913\"}")
+check "correct PIN signs in" "$code" "200"
+grep -q '"role":"SECURITY"' "$D/pinlogin.json" && ok "PIN login returns the guard" || bad "pin login user" "$(cat "$D/pinlogin.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/gpin.txt" "$API/visits/today")
+check "PIN session can use the gate" "$code" "200"
+
+# Changing an existing PIN requires the current one.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"736251","currentPin":"999999"}')
+check "change PIN with wrong current rejected" "$code" "400"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"736251","currentPin":"482913"}')
+check "change PIN with correct current accepted" "$code" "200"
+
+# A PIN is a guard credential — admins cannot set one.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"445566"}')
+check "admin cannot set a PIN" "$code" "400"
+
+echo "--- lockout (on a separate guard, so it does not affect others) ---"
+mk "Lock Guard" lockguard guardpass123 SECURITY > "$D/lg.json"
+LOCK_ID=$(firstid "$D/lg.json")
+needid "lock guard id" "$LOCK_ID"
+login lockguard guardpass123 "$D/lgc.txt" > /dev/null
+curl -s -o /dev/null -b "$D/lgc.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"246803"}'
+for i in 1 2 3 4; do
+  curl -s -o /dev/null -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"000000\"}"
+done
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"000000\"}")
+check "PIN locks after 5 wrong tries" "$code" "429"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"246803\"}")
+check "correct PIN refused while locked" "$code" "429"
+
+echo "--- superadmin reset (restore access without impersonation) ---"
+code=$(curl -s -o "$D/reset.json" -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$LOCK_ID/reset-pin")
+check "superadmin resets a locked guard" "$code" "200"
+TEMP=$(sed -n 's/.*"tempPin":"\([0-9]*\)".*/\1/p' "$D/reset.json")
+[ -n "$TEMP" ] && ok "reset returns a one-time PIN" || bad "temp pin" "$(cat "$D/reset.json")"
+code=$(curl -s -o "$D/tl.json" -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"$TEMP\"}")
+check "temp PIN signs in after reset (lock cleared)" "$code" "200"
+grep -q '"must_change_pin":true' "$D/tl.json" && ok "temp PIN forces a change" || bad "must_change_pin" "$(cat "$D/tl.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$ADMIN1_ID/reset-pin")
+check "cannot reset an admin's PIN" "$code" "400"
+
+echo "--- auth audit log ---"
+curl -s -b "$D/su.txt" "$API/admin/users/$GUARD_ID/auth-events" > "$D/ae.json"
+grep -q '"event":"PIN_SET"' "$D/ae.json" && ok "PIN_SET recorded" || bad "pin_set log" "$(head -c 300 "$D/ae.json")"
+grep -q '"event":"LOGIN"' "$D/ae.json" && ok "LOGIN recorded" || bad "login log" ""
+curl -s -b "$D/su.txt" "$API/admin/users/$LOCK_ID/auth-events" | grep -q '"event":"PIN_RESET"' && ok "PIN_RESET recorded with actor" || bad "reset log" ""
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/admin/users/$GUARD_ID/auth-events")
+check "guard cannot read the audit log" "$code" "403"
+OUT=$(psql -qtAX -d "$DB" -c "DELETE FROM auth_events WHERE event='LOGIN_FAILED'" 2>&1)
+echo "$OUT" | grep -q "append-only" && ok "auth_events DELETE blocked by database" || bad "auth delete guard" "$OUT"
+
 echo "=== 4. Create visit with companions ==="
 node -e "
 const sharp=require('$ROOT/server/node_modules/sharp');

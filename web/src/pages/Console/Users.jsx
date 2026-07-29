@@ -123,6 +123,7 @@ export default function Users() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pinReset, setPinReset] = useState(null); // { user, tempPin }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,6 +146,17 @@ export default function Users() {
     if (user.is_active && !window.confirm(L.console.users.confirmDeactivate(user.name))) return;
     try {
       await admin.updateUser(user.id, { is_active: !user.is_active });
+      await load();
+    } catch (err) {
+      setToast({ message: err.message, tone: 'error' });
+    }
+  };
+
+  const resetPin = async (user) => {
+    if (!window.confirm(L.console.users.confirmResetPin(user.name))) return;
+    try {
+      const { tempPin } = await admin.resetPin(user.id);
+      setPinReset({ user, tempPin });
       await load();
     } catch (err) {
       setToast({ message: err.message, tone: 'error' });
@@ -189,6 +201,16 @@ export default function Users() {
                           {L.console.users.inactive}
                         </span>
                       )}
+                      {/* PIN status, only meaningful for gate staff. */}
+                      {u.role === 'SECURITY' && u.pin_locked && (
+                        <span className="badge border-red-300 bg-red-50 text-red-700">{L.console.users.pinLocked}</span>
+                      )}
+                      {u.role === 'SECURITY' && !u.pin_locked && u.has_pin && (
+                        <span className="badge border-green-300 bg-green-50 text-green-700">{L.console.users.hasPin}</span>
+                      )}
+                      {u.role === 'SECURITY' && !u.has_pin && (
+                        <span className="badge border-slate-300 bg-slate-100 text-slate-500">{L.console.users.noPin}</span>
+                      )}
                     </div>
                     <p className="truncate text-sm text-slate-500">
                       @{u.username}
@@ -197,7 +219,12 @@ export default function Users() {
                       {u.created_by_name && ` · ${L.console.users.createdBy} ${u.created_by_name}`}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {u.role === 'SECURITY' && u.is_active && (
+                      <button type="button" className="btn-ghost px-4 text-sm" onClick={() => resetPin(u)}>
+                        {L.console.users.resetPin}
+                      </button>
+                    )}
                     <button type="button" className="btn-ghost px-4 text-sm" onClick={() => setEditing(u)}>
                       {L.console.users.resetPassword}
                     </button>
@@ -232,6 +259,26 @@ export default function Users() {
             load();
           }}
         />
+      )}
+
+      {pinReset && (
+        <Modal
+          title={L.console.users.pinResetTitle}
+          onClose={() => setPinReset(null)}
+          footer={
+            <button type="button" className="btn-primary w-full" onClick={() => setPinReset(null)}>
+              {L.done}
+            </button>
+          }
+        >
+          <div className="space-y-4 text-center">
+            <p className="text-slate-600">{L.console.users.pinResetBody(pinReset.user.name)}</p>
+            <div className="rounded-2xl bg-slate-100 py-6 text-4xl font-bold tracking-[0.4em] text-slate-800">
+              {pinReset.tempPin}
+            </div>
+            <p className="text-sm text-slate-500">{L.console.users.pinResetLogged}</p>
+          </div>
+        </Modal>
       )}
 
       <Toast message={toast && toast.message} tone={toast && toast.tone} onDone={() => setToast(null)} />

@@ -50,7 +50,10 @@ export const api = {
 export const auth = {
   me: () => api.get('/api/auth/me'),
   login: (username, password) => api.post('/api/auth/login', { username, password }),
+  loginPin: (userId, pin) => api.post('/api/auth/login-pin', { userId, pin }),
+  gateUsers: () => api.get('/api/auth/gate-users'),
   logout: () => api.post('/api/auth/logout'),
+  setPin: (newPin, currentPin) => api.post('/api/auth/pin', { newPin, currentPin }),
   changePassword: (currentPassword, newPassword) =>
     api.post('/api/auth/change-password', { currentPassword, newPassword }),
 };
@@ -76,6 +79,8 @@ export const admin = {
   users: (role) => api.get(`/api/admin/users${role ? `?role=${role}` : ''}`),
   createUser: (payload) => api.post('/api/admin/users', payload),
   updateUser: (id, payload) => api.patch(`/api/admin/users/${id}`, payload),
+  resetPin: (id) => api.post(`/api/admin/users/${id}/reset-pin`),
+  authEvents: (id) => api.get(`/api/admin/users/${id}/auth-events`),
   visits: (params) => api.get(`/api/admin/visits?${new URLSearchParams(params)}`),
   events: (id) => api.get(`/api/admin/visits/${id}/events`),
   csvUrl: (date) => `/api/admin/report/daily?format=csv${date ? `&date=${date}` : ''}`,

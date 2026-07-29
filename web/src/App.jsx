@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, homeFor } from './lib/auth';
 import { LoadingBlock } from './components/ui';
+import ForcePinChange from './components/ForcePinChange';
 import Login from './pages/Login';
 import Gate from './pages/Gate';
 import Approvals from './pages/Approvals';
@@ -26,6 +27,12 @@ function RootRedirect() {
 }
 
 export default function App() {
+  const { user, loading } = useAuth();
+
+  // A guard signed in with a temporary PIN must set a private one before doing
+  // anything else — no route escapes this until it is done.
+  if (!loading && user && user.must_change_pin) return <ForcePinChange />;
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

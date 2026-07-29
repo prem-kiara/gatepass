@@ -30,6 +30,12 @@ export function AuthProvider({ children }) {
     return me;
   }, []);
 
+  const loginPin = useCallback(async (userId, pin) => {
+    const { user: me } = await authApi.loginPin(userId, pin);
+    setUser(me);
+    return me;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
@@ -39,7 +45,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, loginPin, logout, refresh, setUser }}>
       {children}
     </AuthContext.Provider>
   );

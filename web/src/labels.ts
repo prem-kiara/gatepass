@@ -37,6 +37,27 @@ export const L = {
     submit: 'Log in',
     signingIn: 'Signing in…',
     failed: 'Incorrect username or password.',
+
+    // PIN sign-in (guards)
+    pickName: 'Tap your name to sign in',
+    noGuards: 'No security staff set up yet.',
+    enterPin: (name: string) => `Enter PIN for ${name}`,
+    pinLabel: 'PIN',
+    pinClear: 'Clear',
+    pinBack: 'Not you? Go back',
+    wrongPin: 'Wrong PIN. Try again.',
+    usePassword: 'Use a password instead',
+    usePin: 'Sign in with a PIN',
+    noPinYet: 'No PIN set yet — sign in with your password, then set a PIN in Settings.',
+
+    // Forced PIN change after a superadmin reset / first use
+    setPinTitle: 'Set your PIN',
+    setPinWhy: 'Choose a 6-digit PIN only you know. You’ll use it to sign in at the gate.',
+    newPin: 'New PIN',
+    confirmPin: 'Confirm PIN',
+    pinMismatch: 'The two PINs do not match.',
+    savePin: 'Save PIN',
+    pinSaved: 'PIN saved.',
   },
 
   // --- roles ---
@@ -234,6 +255,17 @@ export const L = {
       confirmDeactivate: (name: string) => `Deactivate ${name}? They will be signed out and cannot log in.`,
       none: 'No users yet.',
       createdBy: 'Created by',
+      // PIN status + reset
+      hasPin: 'PIN set',
+      noPin: 'No PIN',
+      pinLocked: 'PIN locked',
+      resetPin: 'Reset PIN',
+      confirmResetPin: (name: string) =>
+        `Reset ${name}'s PIN? They will get a one-time PIN and must set a new one at next sign-in.`,
+      pinResetTitle: 'One-time PIN',
+      pinResetBody: (name: string) =>
+        `Give this to ${name}. They must enter it once, then set their own new PIN. It cannot be shown again.`,
+      pinResetLogged: 'This reset has been recorded in the sign-in log.',
     },
   },
 

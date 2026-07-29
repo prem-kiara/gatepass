@@ -49,7 +49,7 @@ async function requireAuth(req, res, next) {
 
   try {
     const { rows } = await query(
-      'SELECT id, name, username, phone, role, is_active FROM users WHERE id = $1',
+      'SELECT id, name, username, phone, role, is_active, must_change_pin, (pin_hash IS NOT NULL) AS pin_hash FROM users WHERE id = $1',
       [payload.sub]
     );
     const user = rows[0];

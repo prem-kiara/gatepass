@@ -8,6 +8,8 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 const { str, normalizePhone, uuid, oneOf, isoDate, ValidationError } = require('../lib/validate');
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
+const { randomTempPin } = require('../lib/pin');
+const { logAuth } = require('../lib/authlog');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('SUPERADMIN'));
@@ -24,6 +26,9 @@ function publicUser(u) {
     is_active: u.is_active,
     created_at: u.created_at,
     created_by_name: u.created_by_name || null,
+    has_pin: Boolean(u.pin_hash),
+    must_change_pin: Boolean(u.must_change_pin),
+    pin_locked: Boolean(u.pin_locked_until && new Date(u.pin_locked_until) > new Date()),
   };
 }
 
@@ -135,6 +140,68 @@ router.patch('/users/:id', async (req, res, next) => {
       params
     );
     res.json({ user: publicUser(rows[0]) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/reset-pin — restore a locked-out or forgetful
+ * guard's access WITHOUT the superadmin ever being able to act as them.
+ *
+ * It issues a random one-time PIN, forces the guard to replace it on next
+ * sign-in (must_change_pin), and records the reset in the append-only auth log
+ * naming the superadmin who did it. So access can be restored, but any use of
+ * this lever is permanent and visible, and the guard is forced to re-secret —
+ * which is what keeps it from becoming a quiet impersonation path.
+ *
+ * The temporary PIN is returned exactly once, for the superadmin to hand to the
+ * guard; it is never stored in the clear or shown again.
+ */
+router.post('/users/:id/reset-pin', async (req, res, next) => {
+  try {
+    const id = uuid(req.params.id, 'User', { required: true });
+    const { rows } = await query('SELECT id, role, is_active FROM users WHERE id = $1', [id]);
+    const target = rows[0];
+    if (!target) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such user.' });
+    if (target.role !== 'SECURITY') {
+      throw new ValidationError('PINs are only for gate (security) staff.', 'role');
+    }
+
+    const tempPin = randomTempPin();
+    await query(
+      `UPDATE users
+       SET pin_hash = $2, pin_set_at = now(), must_change_pin = true,
+           pin_failed_attempts = 0, pin_locked_until = NULL
+       WHERE id = $1`,
+      [id, await bcrypt.hash(tempPin, 12)]
+    );
+    await logAuth({ userId: id, actorId: req.user.id, event: 'PIN_RESET', req });
+
+    res.json({ tempPin });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/admin/users/:id/auth-events — the sign-in / credential history for
+ * one account, so the superadmin can see exactly how and when it was accessed.
+ */
+router.get('/users/:id/auth-events', async (req, res, next) => {
+  try {
+    const id = uuid(req.params.id, 'User', { required: true });
+    const { rows } = await query(
+      `SELECT e.id, e.event, e.method, e.ip, e.at, e.detail,
+              actor.name AS actor_name
+       FROM auth_events e
+       LEFT JOIN users actor ON actor.id = e.actor_id
+       WHERE e.user_id = $1
+       ORDER BY e.at DESC
+       LIMIT 100`,
+      [id]
+    );
+    res.json({ events: rows });
   } catch (err) {
     next(err);
   }

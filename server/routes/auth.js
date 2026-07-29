@@ -5,33 +5,67 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { query } = require('../db');
 const { signToken, setAuthCookie, clearAuthCookie, requireAuth } = require('../middleware/auth');
-const { str } = require('../lib/validate');
+const { str, uuid, ValidationError } = require('../lib/validate');
+const { validatePin, MAX_ATTEMPTS, LOCK_MINUTES } = require('../lib/pin');
+const { logAuth } = require('../lib/authlog');
 
 const router = express.Router();
 
-// Gates sit behind a single NAT'd connection, so limit by username+IP rather than
+// Gates sit behind a single NAT'd connection, so limit by identity+IP rather than
 // IP alone — otherwise one guard fat-fingering a password locks out the whole gate.
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => `${req.ip}:${String((req.body && req.body.username) || '').toLowerCase()}`,
-  handler: (req, res) =>
-    res.status(429).json({ error: 'TOO_MANY_ATTEMPTS', message: 'Too many login attempts. Try again in a few minutes.' }),
-});
-
-function publicUser(user) {
-  return { id: user.id, name: user.name, username: user.username, phone: user.phone, role: user.role };
+function identityLimiter(idField) {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `${req.ip}:${String((req.body && req.body[idField]) || '').toLowerCase()}`,
+    handler: (req, res) =>
+      res.status(429).json({ error: 'TOO_MANY_ATTEMPTS', message: 'Too many attempts. Try again in a few minutes.' }),
+  });
 }
 
-router.post('/login', loginLimiter, async (req, res, next) => {
+function publicUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    phone: user.phone,
+    role: user.role,
+    must_change_pin: Boolean(user.must_change_pin),
+    has_pin: Boolean(user.pin_hash),
+  };
+}
+
+/* ------------------------------------------------------------ name picker */
+
+/**
+ * The gate phone is shared, so guards sign in by tapping their name rather than
+ * typing a username. This lists only active SECURITY staff and only their id +
+ * name — enough to render the picker, nothing more. It is pre-auth by necessity
+ * (you cannot have logged in yet) and rate-limited.
+ */
+const pickerLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+router.get('/gate-users', pickerLimiter, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      "SELECT id, name, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE role = 'SECURITY' AND is_active = true ORDER BY name"
+    );
+    res.json({ users: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ------------------------------------------------------------ password login */
+
+router.post('/login', identityLimiter('username'), async (req, res, next) => {
   try {
     const username = str(req.body.username, 'Username', { required: true, max: 100 }).toLowerCase();
     const password = str(req.body.password, 'Password', { required: true, max: 200 });
 
     const { rows } = await query(
-      'SELECT id, name, username, phone, password_hash, role, is_active FROM users WHERE lower(username) = $1',
+      'SELECT id, name, username, phone, password_hash, role, is_active, pin_hash, must_change_pin FROM users WHERE lower(username) = $1',
       [username]
     );
     const user = rows[0];
@@ -40,6 +74,7 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     // be used to enumerate which accounts exist.
     const ok = user && (await bcrypt.compare(password, user.password_hash));
     if (!ok) {
+      await logAuth({ userId: user ? user.id : null, event: 'LOGIN_FAILED', method: 'PASSWORD', req, detail: { username } });
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Incorrect username or password.' });
     }
     if (!user.is_active) {
@@ -47,19 +82,131 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
 
     setAuthCookie(res, signToken(user));
+    await logAuth({ userId: user.id, actorId: user.id, event: 'LOGIN', method: 'PASSWORD', req });
     res.json({ user: publicUser(user) });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/logout', (req, res) => {
-  clearAuthCookie(res);
-  res.json({ ok: true });
+/* ----------------------------------------------------------------- PIN login */
+
+router.post('/login-pin', identityLimiter('userId'), async (req, res, next) => {
+  try {
+    const userId = uuid(req.body.userId, 'User', { required: true });
+    const pin = str(req.body.pin, 'PIN', { required: true, max: 12 });
+
+    const { rows } = await query(
+      `SELECT id, name, username, phone, role, is_active, pin_hash, must_change_pin,
+              pin_failed_attempts, pin_locked_until
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    const user = rows[0];
+
+    // PIN is a guard credential; admins use their password or a passkey.
+    if (!user || user.role !== 'SECURITY' || !user.pin_hash) {
+      await logAuth({ userId: user ? user.id : null, event: 'LOGIN_FAILED', method: 'PIN', req, detail: { reason: 'no_pin' } });
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Wrong PIN.' });
+    }
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'ACCOUNT_INACTIVE', message: 'This account has been deactivated.' });
+    }
+    if (user.pin_locked_until && new Date(user.pin_locked_until) > new Date()) {
+      const mins = Math.ceil((new Date(user.pin_locked_until) - new Date()) / 60000);
+      return res.status(429).json({ error: 'PIN_LOCKED', message: `Too many wrong PINs. Try again in ${mins} min, or sign in with a password.` });
+    }
+
+    const ok = await bcrypt.compare(pin, user.pin_hash);
+    if (!ok) {
+      // Count the miss; lock the account (not the whole gate) after a few.
+      const attempts = user.pin_failed_attempts + 1;
+      if (attempts >= MAX_ATTEMPTS) {
+        await query(
+          `UPDATE users SET pin_failed_attempts = $2, pin_locked_until = now() + ($3 || ' minutes')::interval WHERE id = $1`,
+          [user.id, attempts, String(LOCK_MINUTES)]
+        );
+        await logAuth({ userId: user.id, event: 'PIN_LOCKED', req, detail: { attempts } });
+        return res.status(429).json({ error: 'PIN_LOCKED', message: `Too many wrong PINs. Try again in ${LOCK_MINUTES} min, or sign in with a password.` });
+      }
+      await query('UPDATE users SET pin_failed_attempts = $2 WHERE id = $1', [user.id, attempts]);
+      await logAuth({ userId: user.id, event: 'LOGIN_FAILED', method: 'PIN', req, detail: { attempts } });
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Wrong PIN.' });
+    }
+
+    // Success — clear the miss counter and any lock.
+    await query('UPDATE users SET pin_failed_attempts = 0, pin_locked_until = NULL WHERE id = $1', [user.id]);
+    setAuthCookie(res, signToken(user));
+    const method = user.must_change_pin ? 'TEMP_PIN' : 'PIN';
+    await logAuth({ userId: user.id, actorId: user.id, event: 'LOGIN', method, req });
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ---------------------------------------------------------------- sessions */
+
+router.post('/logout', requireAuth, async (req, res, next) => {
+  try {
+    clearAuthCookie(res);
+    await logAuth({ userId: req.user.id, actorId: req.user.id, event: 'LOGOUT', req });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
+});
+
+/* ------------------------------------------------------------ set / change PIN */
+
+/**
+ * A guard sets or changes their own PIN.
+ *  - Changing an existing PIN requires the current PIN (or the password, if they
+ *    are mid-reset with a temporary one they already used to sign in).
+ *  - must_change_pin is cleared on success, so a temporary PIN can only ever be
+ *    used once before the guard has replaced it with a private one.
+ */
+router.post('/pin', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'SECURITY') {
+      throw new ValidationError('A PIN is only for gate (security) sign-in.', 'role');
+    }
+
+    const { rows } = await query('SELECT pin_hash, must_change_pin FROM users WHERE id = $1', [req.user.id]);
+    const existing = rows[0];
+    const newPin = validatePin(req.body.newPin, 'New PIN');
+
+    // If they already have a real (non-temporary) PIN, they must prove the old one.
+    if (existing.pin_hash && !existing.must_change_pin) {
+      const current = str(req.body.currentPin, 'Current PIN', { required: true, max: 12 });
+      const ok = await bcrypt.compare(current, existing.pin_hash);
+      if (!ok) {
+        return res.status(400).json({ error: 'WRONG_PIN', message: 'Your current PIN is incorrect.' });
+      }
+    }
+
+    const hash = await bcrypt.hash(newPin, 12);
+    await query(
+      `UPDATE users
+       SET pin_hash = $2, pin_set_at = now(), must_change_pin = false,
+           pin_failed_attempts = 0, pin_locked_until = NULL
+       WHERE id = $1`,
+      [req.user.id, hash]
+    );
+    await logAuth({
+      userId: req.user.id,
+      actorId: req.user.id,
+      event: existing.pin_hash ? 'PIN_CHANGED' : 'PIN_SET',
+      req,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/change-password', requireAuth, async (req, res, next) => {
@@ -74,6 +221,7 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
     }
 
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(next_, 12), req.user.id]);
+    await logAuth({ userId: req.user.id, actorId: req.user.id, event: 'PASSWORD_CHANGED', req });
     res.json({ ok: true });
   } catch (err) {
     next(err);
