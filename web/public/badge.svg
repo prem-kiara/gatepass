@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="GatePass">
+  <!--
+    Android notification status-bar icon. Android ignores colour and uses only
+    the alpha channel: opaque pixels are drawn white, transparent stay clear.
+    So this is a SOLID white shield on a fully transparent background, with the
+    visitor (head + shoulders) knocked out via evenodd so the logo still reads
+    at 24dp. A filled colour icon here is what produced the plain white blob.
+  -->
+  <path fill="#ffffff" fill-rule="evenodd" d="
+    M48 8 L84 21 V49 C84 71 69 89 48 96 C27 89 12 71 12 49 V21 Z
+    M48 34 a11 11 0 1 0 0 22 a11 11 0 0 0 0-22 Z
+    M48 58 c-13 0 -22 7 -24 18 h48 c-2-11 -11-18 -24-18 Z
+  " />
+</svg>

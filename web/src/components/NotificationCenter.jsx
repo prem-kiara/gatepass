@@ -15,6 +15,7 @@ const ICONS = {
   VISIT_APPROVED: '✅',
   VISIT_REJECTED: '⛔',
   VISIT_CHECKED_IN: '🚪',
+  VISIT_CHECKED_OUT: '👋',
 };
 
 /**

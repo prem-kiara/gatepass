@@ -9,8 +9,8 @@
  * than a spinner.
  */
 
-const CACHE = 'gatepass-shell-v2';
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const CACHE = 'gatepass-shell-v3';
+const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/badge-96.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -79,7 +79,10 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(title, {
       body: data.body || '',
       icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      // Android draws the badge from the alpha channel only, so this must be a
+      // white-on-transparent silhouette — a full-colour icon here renders as a
+      // plain white blob in the status bar.
+      badge: '/badge-96.png',
       // Collapse repeat alerts about the same visit rather than stacking them,
       // but still re-alert so an escalation is noticed.
       tag: data.visitId ? `visit-${data.visitId}` : `gatepass-${data.id || Date.now()}`,

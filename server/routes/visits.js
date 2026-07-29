@@ -90,13 +90,13 @@ router.post(
       const fullName = str(req.body.full_name, 'Visitor name', { required: true, max: 150 });
       const phone = normalizePhone(req.body.phone, 'Phone number');
       const purpose = str(req.body.purpose, 'Purpose', { max: 500 });
-      // Where the visitor is from: a category, plus a detail naming the specific
-      // company or entity. Company and Government must say which; Private need not.
-      const fromType = oneOf(req.body.from_type, 'Visiting from', ['COMPANY', 'PRIVATE', 'GOVERNMENT']);
+      // Where the visitor is from: a mandatory category, plus a detail naming the
+      // specific company or entity. Company and Government must say which; Private
+      // need not (a personal visitor often has nothing more to record).
+      const fromType = oneOf(req.body.from_type, 'Visiting from', ['COMPANY', 'PRIVATE', 'GOVERNMENT'], {
+        required: true,
+      });
       const fromDetail = str(req.body.from_detail, 'Details', { max: 200 });
-      if (fromDetail && !fromType) {
-        throw new ValidationError('Choose whether this is a company, private or government visit.', 'from_type');
-      }
       if ((fromType === 'COMPANY' || fromType === 'GOVERNMENT') && !fromDetail) {
         throw new ValidationError(
           fromType === 'COMPANY' ? 'Enter which company.' : 'Enter which government entity.',
@@ -270,6 +270,21 @@ async function transition(req, res, next, { from, to, setSql, action, notifyFn }
   }
 }
 
+// Loads the fields the check-in/out notifications need, then hands off to the
+// given notify function. Both transitions tell the host the same way.
+function hostNotifier(notifyFn) {
+  return async (client, visitId) => {
+    const { rows } = await client.query(
+      `SELECT v.id, v.host_admin_id, vis.full_name,
+              (SELECT count(*) FROM visit_companions c WHERE c.visit_id = v.id)::int AS companion_count
+       FROM visits v JOIN visitors vis ON vis.id = v.visitor_id
+       WHERE v.id = $1`,
+      [visitId]
+    );
+    return rows.length ? notifyFn(client, rows[0]) : [];
+  };
+}
+
 router.post('/:id/check-in', ...securityOnly, (req, res, next) =>
   transition(req, res, next, {
     from: 'APPROVED',
@@ -277,16 +292,7 @@ router.post('/:id/check-in', ...securityOnly, (req, res, next) =>
     setSql: 'checked_in_at = now()',
     action: 'CHECKED_IN',
     // Tell the host their visitor is inside and heading over.
-    notifyFn: async (client, visitId) => {
-      const { rows } = await client.query(
-        `SELECT v.id, v.host_admin_id, vis.full_name,
-                (SELECT count(*) FROM visit_companions c WHERE c.visit_id = v.id)::int AS companion_count
-         FROM visits v JOIN visitors vis ON vis.id = v.visitor_id
-         WHERE v.id = $1`,
-        [visitId]
-      );
-      return rows.length ? notify.visitCheckedIn(client, rows[0]) : [];
-    },
+    notifyFn: hostNotifier(notify.visitCheckedIn),
   })
 );
 
@@ -297,6 +303,8 @@ router.post('/:id/check-out', ...securityOnly, (req, res, next) =>
     to: 'CHECKED_OUT',
     setSql: 'checked_out_at = now()',
     action: 'CHECKED_OUT',
+    // Let the host know the visitor has left.
+    notifyFn: hostNotifier(notify.visitCheckedOut),
   })
 );
 

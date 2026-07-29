@@ -76,9 +76,10 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
     setMembers((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeMember = (id) => setMembers((m) => m.filter((x) => x.id !== id));
 
-  // Company and Government must name which one; Private need not.
+  // A category is now mandatory. Company and Government must also name which one;
+  // Private need not.
   const fromValid =
-    !fromType || fromType === 'PRIVATE' || fromDetail.trim().length > 0;
+    fromType !== '' && (fromType === 'PRIVATE' || fromDetail.trim().length > 0);
   const detailsValid =
     fullName.trim().length > 0 &&
     fromValid &&
@@ -192,9 +193,7 @@ export default function NewVisitorFlow({ hosts, onClose, onCreated }) {
               </div>
 
               <div>
-                <label className="label" htmlFor="v-from-type">
-                  {L.gate.from.label} <span className="font-normal text-slate-500">({L.optional})</span>
-                </label>
+                <label className="label" htmlFor="v-from-type">{L.gate.from.label}</label>
                 <select
                   id="v-from-type"
                   className="field"

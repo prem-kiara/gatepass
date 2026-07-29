@@ -107,8 +107,12 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits
   -F "photo=@$D/p.jpg" -F "full_name=Bad Phone" -F "phone=12345" -F "host_name=Someone")
 check "invalid phone rejected" "$code" "400"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
-  -F "photo=@$D/p.jpg" -F "full_name=No Host")
+  -F "photo=@$D/p.jpg" -F "full_name=No Host" -F "from_type=PRIVATE")
 check "host required" "$code" "400"
+# Visiting-from is mandatory for every visitor.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=No From" -F "host_name=Someone")
+check "visiting-from is required" "$code" "400"
 
 echo "=== 5. Repeat visitor lookup ==="
 curl -s -b "$D/g.txt" "$API/visitors/lookup?phone=9876543210" > "$D/lk.json"
@@ -129,7 +133,7 @@ curl -s -N -b "$D/a1.txt" -H 'Accept: text/event-stream' --max-time 6 "$API/even
 SSE_PID=$!
 sleep 1  # let the stream connect and register its listener
 curl -s -o /dev/null -b "$D/g.txt" -X POST "$API/visits" \
-  -F "photo=@$D/p.jpg" -F "full_name=Live Ping" -F "host_admin_id=$ADMIN1_ID"
+  -F "photo=@$D/p.jpg" -F "full_name=Live Ping" -F "from_type=PRIVATE" -F "host_admin_id=$ADMIN1_ID"
 # Give the event a moment to travel, then decide it to emit a second event type.
 sleep 1
 LIVE_ID=$(psql -qtAX -d "$DB" -c "SELECT v.id FROM visits v JOIN visitors vis ON vis.id=v.visitor_id WHERE vis.full_name='Live Ping' ORDER BY v.created_at DESC LIMIT 1")
@@ -200,7 +204,7 @@ echo "$OUT" | grep -q 'append-only' && ok "DELETE on visit_events blocked" || ba
 
 echo "=== 13. Rejection with reason ==="
 code=$(curl -s -o "$D/v2.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
-  -F "photo=@$D/p.jpg" -F "full_name=Walk In" -F "host_name=Accounts Desk" -F "purpose=Delivery")
+  -F "photo=@$D/p.jpg" -F "full_name=Walk In" -F "from_type=PRIVATE" -F "host_name=Accounts Desk" -F "purpose=Delivery")
 check "second visit created (free-text host)" "$code" "201"
 V2=$(firstid "$D/v2.json")
 needid "second visit id captured" "$V2"
@@ -239,7 +243,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/report/
 echo "=== 16. Notifications ==="
 # Fresh visit so the notification assertions are not entangled with earlier ones.
 code=$(curl -s -o "$D/v3.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits" \
-  -F "photo=@$D/p.jpg" -F "full_name=Notify Test" -F "purpose=Meeting" -F "host_admin_id=$ADMIN1_ID")
+  -F "photo=@$D/p.jpg" -F "full_name=Notify Test" -F "purpose=Meeting" -F "from_type=COMPANY" -F "from_detail=Acme Corp" -F "host_admin_id=$ADMIN1_ID")
 check "visit for notification test created" "$code" "201"
 V3=$(firstid "$D/v3.json")
 needid "third visit id captured" "$V3"
@@ -278,6 +282,15 @@ N_HOST=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users
 N_OTHER=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_IN' AND u.username='admin2'")
 check "host admin notified of check-in" "$N_HOST" "1"
 check "non-host admin not notified of check-in" "$N_OTHER" "0"
+
+echo "--- check-out notifies the host admin ---"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$V3/check-out")
+check "check-out for notification test" "$code" "200"
+sleep 1
+N_OUT=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_OUT' AND u.username='admin1'")
+N_OUT_OTHER=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_OUT' AND u.username='admin2'")
+check "host admin notified of check-out" "$N_OUT" "1"
+check "non-host admin not notified of check-out" "$N_OUT_OTHER" "0"
 
 echo "--- history, unread count and read state ---"
 curl -s -b "$D/a1.txt" "$API/notifications" > "$D/n1.json"

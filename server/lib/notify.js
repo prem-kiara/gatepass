@@ -143,6 +143,18 @@ async function visitCheckedIn(client, visit) {
   });
 }
 
+/** The visitor's group has left — let the host know they have checked out. */
+async function visitCheckedOut(client, visit) {
+  if (!visit.host_admin_id) return [];
+  return createFor(client, [visit.host_admin_id], {
+    type: 'VISIT_CHECKED_OUT',
+    title: `${visit.full_name} has checked out`,
+    body: `${visit.full_name}${groupSuffix(visit.companion_count)} has left the building.`,
+    visitId: visit.id,
+    url: '/approvals',
+  });
+}
+
 /** Nobody has acted for 10 minutes — nudge every admin once. */
 async function visitUnattended(client, visit) {
   const ids = await approverIds(client);
@@ -175,6 +187,7 @@ module.exports = {
   visitPending,
   visitDecided,
   visitCheckedIn,
+  visitCheckedOut,
   visitUnattended,
   resolveForVisit,
   approverIds,
