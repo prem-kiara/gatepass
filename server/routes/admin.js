@@ -8,8 +8,9 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 const { str, normalizePhone, uuid, oneOf, isoDate, ValidationError } = require('../lib/validate');
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
-const { randomTempPin } = require('../lib/pin');
+const { randomTempPin, hashPin } = require('../lib/pin');
 const { logAuth } = require('../lib/authlog');
+const { bumpTokenVersion } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('SUPERADMIN'));
@@ -139,6 +140,14 @@ router.patch('/users/:id', async (req, res, next) => {
       `UPDATE users SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
       params
     );
+
+    // A superadmin resetting someone's password must also cut their live
+    // sessions, or the reset only changes how they sign in next time.
+    if (req.body.password !== undefined) {
+      await bumpTokenVersion(id);
+      await logAuth({ userId: id, actorId: req.user.id, event: 'PASSWORD_CHANGED', req, detail: { by_admin: true } });
+    }
+
     res.json({ user: publicUser(rows[0]) });
   } catch (err) {
     next(err);
@@ -174,8 +183,11 @@ router.post('/users/:id/reset-pin', async (req, res, next) => {
        SET pin_hash = $2, pin_set_at = now(), must_change_pin = true,
            pin_failed_attempts = 0, pin_locked_until = NULL
        WHERE id = $1`,
-      [id, await bcrypt.hash(tempPin, 12)]
+      [id, await hashPin(tempPin)]
     );
+    // End any session the guard already had: after a reset, the only way back in
+    // is through the temporary PIN and the forced change that follows it.
+    await bumpTokenVersion(id);
     await logAuth({ userId: id, actorId: req.user.id, event: 'PIN_RESET', req });
 
     res.json({ tempPin });

@@ -21,11 +21,21 @@ if (isProd && (jwtSecret.length < 32 || jwtSecret.includes('CHANGE_ME'))) {
   process.exit(1);
 }
 
+// Pepper for PIN hashing. A 6-digit PIN behind bcrypt alone is brute-forceable
+// offline if the database leaks; this secret lives only in the environment, so a
+// dumped users table is not enough. Fails closed in production, like JWT_SECRET.
+const pinPepper = process.env.PIN_PEPPER || (isProd ? '' : 'dev-only-pin-pepper');
+if (isProd && pinPepper.length < 32) {
+  console.error('[config] PIN_PEPPER must be a real random string of 32+ characters in production.');
+  process.exit(1);
+}
+
 module.exports = {
   isProd,
   port: Number(process.env.PORT || 3040),
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,
+  pinPepper,
   // Secure cookies require HTTPS; allow opting out for local http development only.
   cookieSecure: process.env.COOKIE_SECURE !== 'false',
   photoDir: process.env.PHOTO_DIR || path.join(__dirname, '..', 'photos'),

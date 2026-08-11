@@ -28,6 +28,17 @@ function errorHandler(err, req, res, next) {
     return res.status(409).json({ error: 'DUPLICATE', message: 'That record already exists.' });
   }
 
+  // Deliberate client errors thrown deeper in the stack (a rejected passkey, an
+  // incomplete push subscription) carry their own status. Without this they were
+  // all reported as 500 — which reads as "our bug" for what is really bad input,
+  // and buries genuine faults among them in the logs.
+  if (err && Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+    return res.status(err.status).json({
+      error: err.code || 'REQUEST_REJECTED',
+      message: err.message || 'That request could not be completed.',
+    });
+  }
+
   console.error('[error]', req.method, req.originalUrl, err);
   res.status(500).json({ error: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' });
 }

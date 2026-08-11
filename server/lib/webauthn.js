@@ -54,7 +54,10 @@ function clearChallenge(res) {
 /* --------------------------------------------------------------- register */
 
 async function registrationOptions(user, res) {
-  const { rows } = await query('SELECT credential_id, transports FROM webauthn_credentials WHERE user_id = $1', [user.id]);
+  const { rows } = await query(
+    'SELECT credential_id, transports FROM webauthn_credentials WHERE user_id = $1 AND disabled_at IS NULL',
+    [user.id]
+  );
   const options = await generateRegistrationOptions({
     rpName,
     rpID: rpId,
@@ -129,21 +132,23 @@ async function verifyLogin(req, res, body) {
   if (!saved) {
     const err = new Error('Your sign-in attempt expired. Please try again.');
     err.status = 400;
+    err.reason = 'challenge_expired';
     throw err;
   }
 
   const credentialId = body.credential && body.credential.id;
   const { rows } = await query(
     `SELECT c.*, u.id AS uid, u.name, u.username, u.phone, u.role, u.is_active, u.must_change_pin,
-            (u.pin_hash IS NOT NULL) AS pin_hash
+            u.token_version, (u.pin_hash IS NOT NULL) AS pin_hash
      FROM webauthn_credentials c JOIN users u ON u.id = c.user_id
-     WHERE c.credential_id = $1`,
+     WHERE c.credential_id = $1 AND c.disabled_at IS NULL`,
     [credentialId]
   );
   const cred = rows[0];
   if (!cred) {
     const err = new Error('That passkey is not registered.');
     err.status = 401;
+    err.reason = 'unknown_credential';
     throw err;
   }
 
@@ -165,6 +170,7 @@ async function verifyLogin(req, res, body) {
   if (!verification.verified) {
     const err = new Error('That passkey could not be verified.');
     err.status = 401;
+    err.reason = 'signature_invalid';
     throw err;
   }
 
@@ -182,6 +188,7 @@ async function verifyLogin(req, res, body) {
     is_active: cred.is_active,
     must_change_pin: cred.must_change_pin,
     pin_hash: cred.pin_hash,
+    token_version: cred.token_version,
   };
 }
 
