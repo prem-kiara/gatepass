@@ -2,7 +2,8 @@
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { query } = require('../db');
+const { query, withTransaction } = require('../db');
+const notify = require('../lib/notify');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
@@ -170,7 +171,7 @@ router.patch('/users/:id', async (req, res, next) => {
 router.post('/users/:id/reset-pin', async (req, res, next) => {
   try {
     const id = uuid(req.params.id, 'User', { required: true });
-    const { rows } = await query('SELECT id, role, is_active FROM users WHERE id = $1', [id]);
+    const { rows } = await query('SELECT id, name, role, is_active FROM users WHERE id = $1', [id]);
     const target = rows[0];
     if (!target) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such user.' });
     if (target.role !== 'SECURITY') {
@@ -189,6 +190,21 @@ router.post('/users/:id/reset-pin', async (req, res, next) => {
     // is through the temporary PIN and the forced change that follows it.
     await bumpTokenVersion(id);
     await logAuth({ userId: id, actorId: req.user.id, event: 'PIN_RESET', req });
+
+    // The reset lever is the one path where an admin touches someone else's
+    // credential, so every superadmin hears about each use of it.
+    try {
+      const created = await withTransaction((client) =>
+        notify.securityAlert(client, {
+          type: 'SECURITY_PIN_RESET',
+          title: 'A gate PIN was reset',
+          body: `${req.user.name} issued a one-time PIN for ${target.name || 'a guard'}. They must set their own PIN at next sign-in.`,
+        })
+      );
+      notify.scheduleDelivery(created);
+    } catch (e) {
+      console.error('[admin] reset alert failed:', e.message);
+    }
 
     res.json({ tempPin });
   } catch (err) {
@@ -214,6 +230,63 @@ router.get('/users/:id/auth-events', async (req, res, next) => {
       [id]
     );
     res.json({ events: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/admin/auth-events — the whole sign-in ledger, newest first.
+ *
+ * Per-user history answers "what happened to this account"; this answers "what
+ * is happening across the system", which is where a pattern (one IP failing
+ * against three accounts) actually becomes visible.
+ */
+const AUTH_EVENT_TYPES = [
+  'LOGIN', 'LOGIN_FAILED', 'LOGOUT', 'PIN_SET', 'PIN_CHANGED', 'PIN_RESET',
+  'PIN_LOCKED', 'PASSWORD_CHANGED', 'WEBAUTHN_REGISTERED', 'WEBAUTHN_REMOVED',
+];
+
+router.get('/auth-events', async (req, res, next) => {
+  try {
+    const event = oneOf(req.query.event, 'Event', AUTH_EVENT_TYPES);
+    const userId = uuid(req.query.user_id, 'User');
+    const limit = Math.min(Number(req.query.limit) || 100, 300);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const params = [];
+    const clauses = [];
+    if (event) {
+      params.push(event);
+      clauses.push(`e.event = $${params.length}`);
+    }
+    if (userId) {
+      params.push(userId);
+      clauses.push(`e.user_id = $${params.length}`);
+    }
+    // Everything except routine noise, so the default view is signal.
+    if (req.query.concerning === '1') {
+      clauses.push(`e.event IN ('LOGIN_FAILED','PIN_LOCKED','PIN_RESET','WEBAUTHN_REMOVED','PASSWORD_CHANGED')`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const [list, total] = await Promise.all([
+      query(
+        `SELECT e.id, e.event, e.method, e.ip, e.at, e.detail,
+                subject.name AS user_name, subject.username, subject.role,
+                actor.name AS actor_name
+         FROM auth_events e
+         LEFT JOIN users subject ON subject.id = e.user_id
+         LEFT JOIN users actor   ON actor.id = e.actor_id
+         ${where}
+         ORDER BY e.at DESC, e.id DESC
+         LIMIT ${limit} OFFSET ${offset}`,
+        params
+      ),
+      query(`SELECT count(*)::int AS n FROM auth_events e ${where}`, params),
+    ]);
+
+    res.json({ events: list.rows, total: total.rows[0].n, limit, offset });
   } catch (err) {
     next(err);
   }

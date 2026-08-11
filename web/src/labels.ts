@@ -106,6 +106,16 @@ export const L = {
     back: 'Back',
   },
 
+  // --- shared gate phone idle lock ---
+  gateLock: {
+    title: 'Screen locked',
+    why: 'The gate phone locked itself after a few idle minutes.',
+    signedInAs: (name: string) => `Signed in as ${name}`,
+    enterPin: 'Enter your PIN to continue',
+    wrongPin: 'Wrong PIN. Try again.',
+    switchUser: 'Sign in as someone else',
+  },
+
   // --- roles ---
   role: {
     SECURITY: 'Security',
@@ -312,6 +322,48 @@ export const L = {
       pinResetBody: (name: string) =>
         `Give this to ${name}. They must enter it once, then set their own new PIN. It cannot be shown again.`,
       pinResetLogged: 'This reset has been recorded in the sign-in log.',
+    },
+
+    // Sign-in ledger
+    security: {
+      title: 'Sign-in log',
+      tab: 'Security',
+      none: 'Nothing recorded yet.',
+      noneHint: 'Sign-ins, failures, PIN changes and resets appear here.',
+      concerningOnly: 'Only what matters',
+      all: 'Everything',
+      allUsers: 'All users',
+      loadMore: 'Load older',
+      showing: (shown: number, total: number) => `Showing ${shown} of ${total}`,
+      by: 'by',
+      permanent: 'This log is permanent — entries can never be edited or deleted.',
+      events: {
+        LOGIN: 'Signed in',
+        LOGIN_FAILED: 'Failed sign-in',
+        LOGOUT: 'Signed out',
+        PIN_SET: 'PIN set',
+        PIN_CHANGED: 'PIN changed',
+        PIN_RESET: 'PIN reset by admin',
+        PIN_LOCKED: 'PIN locked',
+        PASSWORD_CHANGED: 'Password changed',
+        WEBAUTHN_REGISTERED: 'Biometric added',
+        WEBAUTHN_REMOVED: 'Biometric removed',
+      } as Record<string, string>,
+      methods: {
+        PASSWORD: 'password',
+        PIN: 'PIN',
+        TEMP_PIN: 'one-time PIN',
+        WEBAUTHN: 'biometric',
+      } as Record<string, string>,
+      reasons: {
+        account_inactive: 'account deactivated',
+        locked: 'while locked',
+        no_pin: 'no PIN set',
+        unknown_credential: 'unknown passkey',
+        signature_invalid: 'invalid signature',
+        challenge_expired: 'expired attempt',
+        verification_failed: 'could not verify',
+      } as Record<string, string>,
     },
   },
 

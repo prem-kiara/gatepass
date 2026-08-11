@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import L from '../labels';
 import { useAuth, homeFor } from '../lib/auth';
@@ -50,29 +50,32 @@ function PinLogin({ onUsePassword }) {
   }, []);
 
   // Submit automatically once the PIN is complete — no extra button to hunt for.
+  //
+  // The in-flight guard is a ref rather than state: with `busy` in the
+  // dependency list, setBusy(true) re-ran this effect and the re-run's cleanup
+  // cancelled the request still in flight. A correct PIN survived that (the
+  // redirect unmounts the screen), but a WRONG one left the guard staring at a
+  // spinner that never resolved and never said "Wrong PIN".
+  const submittingRef = useRef(false);
   useEffect(() => {
-    if (!selected || pin.length !== PIN_LENGTH || busy) return;
-    let cancelled = false;
+    if (!selected || pin.length !== PIN_LENGTH || submittingRef.current) return;
+    submittingRef.current = true;
+    setBusy(true);
+    setError(null);
     (async () => {
-      setBusy(true);
-      setError(null);
       try {
         await loginPin(selected.id, pin);
         // On success the auth context sets the user; App routes onward (or forces
         // a PIN change if this was a temporary one).
       } catch (err) {
-        if (!cancelled) {
-          setError(err);
-          setPin('');
-        }
+        setError(err);
+        setPin('');
       } finally {
-        if (!cancelled) setBusy(false);
+        submittingRef.current = false;
+        setBusy(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pin, selected, busy, loginPin]);
+  }, [pin, selected, loginPin]);
 
   if (error && !users) return <div className="p-2"><ErrorBanner error={error} /></div>;
   if (!users) return <LoadingBlock />;
@@ -220,11 +223,27 @@ function PasswordLogin({ onUsePin }) {
   );
 }
 
+const MODE_KEY = 'gp_login_mode';
+
 export default function Login() {
   const { user, loading } = useAuth();
-  // Default to the PIN picker (the common case at the gate); admins tap through
-  // to the password form.
-  const [mode, setMode] = useState('pin');
+  // Default to the PIN picker (the common case at the gate), but remember what
+  // this device used last so an admin's phone opens on their own sign-in.
+  const [mode, setModeState] = useState(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'password' ? 'password' : 'pin';
+    } catch (err) {
+      return 'pin';
+    }
+  });
+  const setMode = (next) => {
+    setModeState(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch (err) {
+      /* private mode — the default is fine */
+    }
+  };
 
   if (loading) return <LoadingBlock />;
   // A user mid-reset is sent to the forced PIN-change screen by App, not here.

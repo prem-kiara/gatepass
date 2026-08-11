@@ -66,11 +66,61 @@ async function retryUndelivered() {
   await notify.deliver(rows.map((r) => ({ id: r.id, user_id: r.user_id })));
 }
 
+const FAILED_BURST = 3;          // failures against one account...
+const FAILED_WINDOW_MINUTES = 10; // ...within this window is worth a look
+
+/**
+ * Flags a burst of failed sign-ins against a single account.
+ *
+ * One fat-fingered password is noise; three in ten minutes is either someone
+ * locked out and struggling (worth helping) or someone guessing (worth
+ * knowing). Alerts once per burst — the NOT EXISTS check against recent
+ * notifications is what stops it firing every minute while the burst continues.
+ */
+async function alertFailedBursts() {
+  const { rows } = await query(
+    `SELECT e.user_id, u.name, count(*)::int AS failures, max(e.at) AS latest
+     FROM auth_events e
+     JOIN users u ON u.id = e.user_id
+     WHERE e.event = 'LOGIN_FAILED'
+       AND e.at > now() - ($1 || ' minutes')::interval
+     GROUP BY e.user_id, u.name
+     HAVING count(*) >= $2
+       AND NOT EXISTS (
+         SELECT 1 FROM notifications n
+         WHERE n.type = 'SECURITY_FAILED_BURST'
+           AND n.data->>'about' = e.user_id::text
+           AND n.created_at > now() - ($1 || ' minutes')::interval
+       )`,
+    [String(FAILED_WINDOW_MINUTES), FAILED_BURST]
+  );
+
+  for (const row of rows) {
+    try {
+      const created = await withTransaction(async (client) => {
+        const ids = await notify.superadminIds(client);
+        return notify.createFor(client, ids, {
+          type: 'SECURITY_FAILED_BURST',
+          title: 'Repeated failed sign-ins',
+          body: `${row.name} — ${row.failures} failed attempts in the last ${FAILED_WINDOW_MINUTES} minutes.`,
+          url: '/console/security',
+          data: { about: row.user_id, failures: row.failures },
+        });
+      });
+      notify.scheduleDelivery(created);
+      console.log(`[sweeper] flagged ${row.failures} failed sign-ins for ${row.name}`);
+    } catch (err) {
+      console.error(`[sweeper] failed-burst alert failed: ${err.message}`);
+    }
+  }
+}
+
 let timer = null;
 
 async function tick() {
   try {
     await escalateUnattended();
+    await alertFailedBursts();
     await retryUndelivered();
   } catch (err) {
     console.error('[sweeper] tick failed:', err.message);
@@ -90,4 +140,4 @@ function stop() {
   timer = null;
 }
 
-module.exports = { start, stop, tick, escalateUnattended, retryUndelivered };
+module.exports = { start, stop, tick, escalateUnattended, retryUndelivered, alertFailedBursts };

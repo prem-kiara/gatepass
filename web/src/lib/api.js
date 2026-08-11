@@ -84,6 +84,7 @@ export const admin = {
   updateUser: (id, payload) => api.patch(`/api/admin/users/${id}`, payload),
   resetPin: (id) => api.post(`/api/admin/users/${id}/reset-pin`),
   authEvents: (id) => api.get(`/api/admin/users/${id}/auth-events`),
+  authEventsAll: (params) => api.get(`/api/admin/auth-events?${new URLSearchParams(params)}`),
   visits: (params) => api.get(`/api/admin/visits?${new URLSearchParams(params)}`),
   events: (id) => api.get(`/api/admin/visits/${id}/events`),
   csvUrl: (date) => `/api/admin/report/daily?format=csv${date ? `&date=${date}` : ''}`,

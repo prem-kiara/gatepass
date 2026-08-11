@@ -100,6 +100,27 @@ function groupSuffix(companionCount) {
   return companionCount > 0 ? ` +${companionCount} with them` : '';
 }
 
+/** Superadmins only — security alerts are not an admin-wide broadcast. */
+async function superadminIds(client) {
+  const { rows } = await client.query(
+    "SELECT id FROM users WHERE is_active = true AND role = 'SUPERADMIN'"
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Security tripwire — something happened to an account that a superadmin should
+ * know about without going looking: a PIN locked by repeated wrong guesses, a
+ * PIN reset, or a burst of failed sign-ins.
+ *
+ * The person who performed a reset seeing their own alert is fine; the point is
+ * that the *other* superadmins see it too.
+ */
+async function securityAlert(client, { type, title, body, url = '/console/security' }) {
+  const ids = await superadminIds(client);
+  return createFor(client, ids, { type, title, body, url });
+}
+
 /** A new visit is waiting — broadcast to every admin, matching the shared queue. */
 async function visitPending(client, visit) {
   const ids = await approverIds(client);
@@ -184,6 +205,8 @@ module.exports = {
   createFor,
   deliver,
   scheduleDelivery,
+  securityAlert,
+  superadminIds,
   visitPending,
   visitDecided,
   visitCheckedIn,

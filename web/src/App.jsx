@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, homeFor } from './lib/auth';
 import { LoadingBlock } from './components/ui';
 import ForcePinChange from './components/ForcePinChange';
+import GateIdleLock from './components/GateIdleLock';
 import Login from './pages/Login';
 import Gate from './pages/Gate';
 import Approvals from './pages/Approvals';
@@ -35,7 +36,9 @@ export default function App() {
   if (!loading && user && user.must_change_pin) return <ForcePinChange />;
 
   return (
-    <Routes>
+    <>
+      <GateIdleLock />
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route
         path="/gate"
@@ -69,7 +72,8 @@ export default function App() {
           </Protected>
         }
       />
-      <Route path="*" element={<RootRedirect />} />
-    </Routes>
+        <Route path="*" element={<RootRedirect />} />
+      </Routes>
+    </>
   );
 }

@@ -100,6 +100,27 @@ check "change PIN with correct current accepted" "$code" "200"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -c "$D/a1.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"445566"}')
 check "admin cannot set a PIN" "$code" "400"
 
+echo "--- a pre-pepper PIN still works and is upgraded in place ---"
+# The guards already using PINs in production have un-peppered hashes. If those
+# stopped verifying they would be locked out of their own gate, so prove the
+# legacy path works and self-heals rather than assuming it.
+mk "Legacy Guard" legacyguard guardpass123 SECURITY > "$D/leg.json"
+LEG_ID=$(firstid "$D/leg.json")
+needid "legacy guard id" "$LEG_ID"
+# Write a raw bcrypt hash exactly as the pre-pepper code did.
+LEGHASH=$(cd $ROOT/server && node -e "console.log(require('bcryptjs').hashSync('571394',12))")
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_hash='$LEGHASH', pin_set_at=now() WHERE id='$LEG_ID'" > /dev/null
+FMT_BEFORE=$(psql -qtAX -d "$DB" -c "SELECT left(pin_hash,3) FROM users WHERE id='$LEG_ID'")
+[ "$FMT_BEFORE" = '$2a' ] && ok "seeded a legacy (un-peppered) PIN hash" || bad "legacy seed" "got $FMT_BEFORE"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LEG_ID\",\"pin\":\"571394\"}")
+check "legacy PIN still signs in" "$code" "200"
+FMT_AFTER=$(psql -qtAX -d "$DB" -c "SELECT left(pin_hash,3) FROM users WHERE id='$LEG_ID'")
+[ "$FMT_AFTER" = 'p1$' ] && ok "legacy hash upgraded to peppered on sign-in" || bad "pin rehash" "got $FMT_AFTER"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LEG_ID\",\"pin\":\"571394\"}")
+check "same PIN still works after the upgrade" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LEG_ID\",\"pin\":\"000000\"}")
+check "wrong PIN still rejected after the upgrade" "$code" "401"
+
 echo "--- lockout (on a separate guard, so it does not affect others) ---"
 mk "Lock Guard" lockguard guardpass123 SECURITY > "$D/lg.json"
 LOCK_ID=$(firstid "$D/lg.json")
@@ -188,6 +209,24 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/admin/users/$G
 check "guard cannot read the audit log" "$code" "403"
 OUT=$(psql -qtAX -d "$DB" -c "DELETE FROM auth_events WHERE event='LOGIN_FAILED'" 2>&1)
 echo "$OUT" | grep -q "append-only" && ok "auth_events DELETE blocked by database" || bad "auth delete guard" "$OUT"
+
+echo "--- global sign-in ledger + tripwires ---"
+curl -s -b "$D/su.txt" "$API/admin/auth-events?limit=200" > "$D/gae.json"
+grep -q '"events"' "$D/gae.json" && ok "global auth-event feed returns" || bad "global feed" "$(head -c 200 "$D/gae.json")"
+grep -q '"actor_name"' "$D/gae.json" && ok "feed names the actor" || bad "feed actor" ""
+# The filtered view must hide routine sign-ins and keep the concerning ones.
+curl -s -b "$D/su.txt" "$API/admin/auth-events?concerning=1&limit=200" > "$D/gac.json"
+grep -q '"event":"LOGIN"' "$D/gac.json" && bad "concerning filter" "plain LOGIN leaked into filtered view" || ok "filtered view excludes routine sign-ins"
+grep -q '"event":"LOGIN_FAILED"\|"event":"PIN_RESET"' "$D/gac.json" && ok "filtered view keeps failures and resets" || bad "concerning content" ""
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/auth-events")
+check "admin cannot read the global ledger" "$code" "403"
+# Locking a PIN and resetting one both alert the superadmins.
+LOCKN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type='SECURITY_PIN_LOCKED' AND u.role='SUPERADMIN'")
+[ "$LOCKN" -ge 1 ] && ok "PIN lock alerts the superadmin ($LOCKN)" || bad "lock alert" "got $LOCKN"
+RESETN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type='SECURITY_PIN_RESET' AND u.role='SUPERADMIN'")
+[ "$RESETN" -ge 1 ] && ok "PIN reset alerts the superadmin ($RESETN)" || bad "reset alert" "got $RESETN"
+GUARDN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type LIKE 'SECURITY_%' AND u.role<>'SUPERADMIN'")
+check "security alerts go to superadmins only" "$GUARDN" "0"
 
 echo "=== 3c. Passkeys (biometric) — endpoint wiring ==="
 # The ceremony itself needs a real authenticator; here we prove the endpoints are

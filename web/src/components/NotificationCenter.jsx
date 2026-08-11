@@ -16,6 +16,9 @@ const ICONS = {
   VISIT_REJECTED: '⛔',
   VISIT_CHECKED_IN: '🚪',
   VISIT_CHECKED_OUT: '👋',
+  SECURITY_PIN_LOCKED: '🔒',
+  SECURITY_PIN_RESET: '🔑',
+  SECURITY_FAILED_BURST: '🚨',
 };
 
 /**

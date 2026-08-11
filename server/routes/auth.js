@@ -5,7 +5,8 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
-const { query } = require('../db');
+const { query, withTransaction } = require('../db');
+const notify = require('../lib/notify');
 const {
   signToken,
   setAuthCookie,
@@ -155,6 +156,20 @@ router.post('/login-pin', identityLimiter('userId'), async (req, res, next) => {
 
       if (locked) {
         await logAuth({ userId: user.id, event: 'PIN_LOCKED', req, detail: { attempts } });
+        // Someone is guessing at the gate phone — tell the superadmins now
+        // rather than leaving it for whoever next reads the log.
+        try {
+          const created = await withTransaction((client) =>
+            notify.securityAlert(client, {
+              type: 'SECURITY_PIN_LOCKED',
+              title: 'A gate PIN was locked',
+              body: `${user.name}'s PIN was locked after ${attempts} wrong attempts.`,
+            })
+          );
+          notify.scheduleDelivery(created);
+        } catch (e) {
+          console.error('[auth] lock alert failed:', e.message);
+        }
         return res.status(429).json({ error: 'PIN_LOCKED', message: `Too many wrong PINs. Try again in ${LOCK_MINUTES} min, or sign in with a password.` });
       }
       await logAuth({ userId: user.id, event: 'LOGIN_FAILED', method: 'PIN', req, detail: { attempts } });

@@ -5,12 +5,14 @@ import ApprovalQueue from '../components/ApprovalQueue';
 import Dashboard from './Console/Dashboard';
 import Visits from './Console/Visits';
 import Users from './Console/Users';
+import Security from './Console/Security';
 
 const TABS = [
   { key: 'approvals', label: L.console.tabs.approvals },
   { key: 'dashboard', label: L.console.tabs.dashboard },
   { key: 'visits', label: L.console.tabs.visits },
   { key: 'users', label: L.console.tabs.users },
+  { key: 'security', label: L.console.security.tab },
 ];
 
 export default function Console() {
@@ -48,6 +50,7 @@ export default function Console() {
         {tab === 'dashboard' && <Dashboard />}
         {tab === 'visits' && <Visits />}
         {tab === 'users' && <Users />}
+        {tab === 'security' && <Security />}
       </main>
     </div>
   );
