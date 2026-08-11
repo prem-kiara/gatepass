@@ -46,6 +46,61 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-08-11 — Auth audit follow-up: closed the gaps the review found
+
+A review of the live sign-in records and the auth code found three places where
+the guarantees we advertise were not actually enforced, plus hardening gaps.
+All fixed and deployed. See CLAUDE.md for the four rules this now rests on.
+
+### The guarantees now hold at the API, not just in the UI
+
+- **`must_change_pin` is enforced server-side** (`requireAuth`, chained so a new
+  route cannot forget it). Previously only the React client blocked a temp-PIN
+  session, so the superadmin — who *knows* the temporary PIN they just issued —
+  could have driven the API as that guard. Impersonation went from "visible in
+  the ledger" to "impossible".
+- **`token_version` (009)** — credential changes now end other sessions. A
+  stolen session used to survive the victim changing their password. The
+  caller's own cookie is re-issued so they stay signed in.
+- **The ledger records failures**, not just successes: rejected passkeys,
+  attempts against deactivated accounts, and attempts made *during* a PIN lock —
+  exactly the window where someone is grinding guesses.
+
+### Hardening
+
+- **PIN pepper** (`PIN_PEPPER`, generated on the VM, fails closed in prod): a
+  6-digit PIN behind bcrypt alone is crackable offline if the DB leaks. Legacy
+  hashes still verify and upgrade in place on next sign-in — proven in e2e by
+  seeding a pre-pepper hash, because the two guards using PINs in production
+  would otherwise have been locked out of their own gate.
+- Atomic lockout counter (read-then-write let concurrent guesses past the limit),
+  cookie TTL follows the role's token TTL, passkey removal soft-deletes (010),
+  logout clears the cookie even when the token is already invalid.
+
+### Visibility
+
+- **Console → Security**: the whole sign-in log, defaulting to a filtered view of
+  what matters so routine sign-ins do not bury the signal. Names the actor.
+- **Tripwires**: superadmins are notified of PIN locks, every use of the reset
+  lever, and 3+ failed sign-ins against one account in 10 minutes.
+- **Idle gate lock**: the shared phone locks after 10 idle minutes and takes the
+  guard's own PIN to resume — a real re-authentication, so whoever continues is
+  still who the audit trail names.
+
+### Two bugs found by testing rather than reading
+
+- **Stuck spinner on a wrong PIN (live in production).** In both PIN screens
+  `busy` was a dependency of the submitting effect, so `setBusy(true)` re-ran it
+  and the re-run's cleanup cancelled the request in flight. A *correct* PIN
+  survived (the redirect unmounts the screen) which is why it was never noticed —
+  but a guard mistyping their PIN got a spinner that never resolved and never
+  said "Wrong PIN". Now guarded by a ref.
+- **`err.status` was ignored by the error handler**, so every deliberate 4xx
+  thrown deeper in the stack (rejected passkey, malformed push subscription)
+  surfaced as a 500 — reading as our fault, and burying real faults in the logs.
+
+e2e 141 → 168.
+
 ## 2026-07-29 — Easier sign-in: guard PINs + admin biometrics (no foulplay)
 
 Two ways to sign in beyond the password (which stays as everyone's backup), each

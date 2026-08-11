@@ -12,7 +12,16 @@ and a full audit trail for the superadmin.
   - **Password** (bcryptjs) — the backup for everyone.
   - **PIN** (guards) — 6 digits, bcrypt-hashed, name-picker sign-in on the shared gate phone. Wrong-PIN lockout (5 tries → 15 min, that guard only). Superadmin can *reset* to a one-time PIN (forces a change, logged) but never read or reuse one.
   - **Passkey** (admins) — WebAuthn / Face ID / fingerprint via `@simplewebauthn`. Only a public key is stored; the biometric never reaches the server. `rpId`/`origin` from `WEBAUTHN_*` config (default production).
-  - Every sign-in (with method), failed attempt, PIN change and reset is written to **`auth_events`** — append-only, DELETE blocked by trigger, same as `visit_events`. This is the "no foulplay" ledger. Users manage their own credentials at `/settings`.
+  - Every sign-in (with method), failed attempt, PIN change and reset is written to **`auth_events`** — append-only, DELETE blocked by trigger, same as `visit_events`. This is the "no foulplay" ledger. Users manage their own credentials at `/settings`; the superadmin reads the whole ledger in Console → Security.
+
+**The four rules that make the auth model hold.** Break any one and the audit trail stops meaning anything:
+
+1. **A credential proves its owner and nobody else.** PINs are peppered (`PIN_PEPPER`) then bcrypt-hashed; passkeys store only a public key. Nothing readable, by anyone, including the superadmin.
+2. **Restore access, never borrow it.** The superadmin's reset issues a *one-time* PIN and sets `must_change_pin`. That flag is enforced in `requireAuth` itself (chained, so a new route cannot forget it) — a temp-PIN session may only read `/auth/me`, set a PIN, or log out. Without that gate the resetting admin, who knows the temp PIN, could drive the API as the guard.
+3. **A credential change ends other sessions.** Every token carries `token_version`; changing a password/PIN, an admin reset, or removing a passkey bumps it. The caller's own cookie is re-issued in the same response so they stay signed in — if you add a new credential-changing route, do both.
+4. **Failures are logged, not just successes.** Including the awkward ones: attempts during a lock, against deactivated accounts, and rejected passkeys. A ledger that only records what worked cannot show you an attack.
+
+Tripwires (`lib/notify.js` → `securityAlert`, and the sweeper) notify superadmins on PIN locks, resets, and bursts of failed sign-ins. The shared gate phone locks itself after 10 idle minutes and requires the guard's own PIN to resume.
 - **Photos:** captured in-browser, compressed client-side (max edge 1024px, JPEG ~80%), uploaded via multer (memory), normalized and EXIF-stripped by sharp, written to `PHOTO_DIR` with UUID filenames. Served **only** through the authenticated route `GET /api/photos/:filename` — never as public static files.
 
 ## Layout
