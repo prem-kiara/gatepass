@@ -14,22 +14,18 @@ const LOCK_MINUTES = 15;
 const PEPPER_PREFIX = 'p1$';
 
 /**
- * A 6-digit PIN is low entropy, so we reject the handful of PINs an attacker
- * would try first (all-same, straight run up or down). The lockout does the
- * real work; this just removes the free guesses.
+ * Any 6 digits is accepted, including obvious ones like 123456.
+ *
+ * We used to reject all-same and straight sequences. That was belt-and-braces:
+ * what actually protects a 6-digit secret is the lockout (5 wrong tries, then
+ * 15 minutes for that guard only) and the pepper, which makes a leaked hash
+ * useless offline. Deliberate product call — memorability at a gate counter
+ * beats a rule that mostly annoys the people who have to type it in sunlight.
  */
 function validatePin(value, field = 'PIN') {
   const s = typeof value === 'string' ? value.trim() : '';
   if (!new RegExp(`^\\d{${PIN_LENGTH}}$`).test(s)) {
     throw new ValidationError(`${field} must be ${PIN_LENGTH} digits.`, 'pin');
-  }
-  if (/^(\d)\1+$/.test(s)) {
-    throw new ValidationError('Choose a less obvious PIN — not all the same digit.', 'pin');
-  }
-  const ASCEND = '0123456789';
-  const DESCEND = '9876543210';
-  if (ASCEND.includes(s) || DESCEND.includes(s)) {
-    throw new ValidationError('Choose a less obvious PIN — not a simple sequence.', 'pin');
   }
   return s;
 }

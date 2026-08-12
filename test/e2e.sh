@@ -75,10 +75,19 @@ grep -q 'Admin Meena' "$D/gu.json" && bad "picker excludes admins" "admins liste
 # Guard sets a PIN (authenticated by password).
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"482913"}')
 check "guard sets a PIN" "$code" "200"
+# Obvious PINs are allowed on purpose — the lockout and pepper are the real
+# protection, and a memorable PIN is worth more at a gate counter than a rule.
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"111111","currentPin":"482913"}')
-check "all-same PIN rejected" "$code" "400"
-code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"123456","currentPin":"482913"}')
-check "sequential PIN rejected" "$code" "400"
+check "all-same PIN accepted" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"123456","currentPin":"111111"}')
+check "123456 accepted" "$code" "200"
+# Shape is still enforced: a PIN must be exactly 6 digits.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"1234","currentPin":"123456"}')
+check "short PIN still rejected" "$code" "400"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"12ab56","currentPin":"123456"}')
+check "non-numeric PIN still rejected" "$code" "400"
+# Put the working PIN back for the sign-in checks below.
+curl -s -o /dev/null -b "$D/g.txt" -c "$D/g.txt" -X POST "$API/auth/pin" -H 'Content-Type: application/json' -d '{"newPin":"482913","currentPin":"123456"}'
 curl -s "$API/auth/gate-users" | grep -q '"has_pin":true' && ok "picker marks the guard as having a PIN" || bad "has_pin" ""
 
 # Wrong PIN fails; correct PIN signs in and can use the gate.
