@@ -24,11 +24,18 @@ export function LiveProvider({ children }) {
   if (!targetRef.current) targetRef.current = new EventTarget();
   const [, setConnected] = useState(false);
 
+  // A session still on a temporary PIN is refused by /api/events (403), and
+  // EventSource treats that as fatal — it does not retry. Since the guard is
+  // about to replace that PIN, connecting now would burn the one connection
+  // attempt and leave the gate on polling until a manual reload. Wait, and let
+  // must_change_pin flipping to false below re-run this effect and connect.
+  const pendingPinChange = Boolean(user && user.must_change_pin);
+
   useEffect(() => {
     // Only connect when logged in; the endpoint requires auth and would just
-    // 401-loop otherwise. Reconnects cleanly on login/logout because `user`
-    // (specifically its id) is the dependency.
-    if (!user || typeof EventSource === 'undefined') return undefined;
+    // 401-loop otherwise. Reconnects cleanly on login/logout and once a forced
+    // PIN change completes, because both are dependencies below.
+    if (!user || pendingPinChange || typeof EventSource === 'undefined') return undefined;
 
     const target = targetRef.current;
     const source = new EventSource('/api/events', { withCredentials: true });
@@ -59,7 +66,7 @@ export function LiveProvider({ children }) {
       handlers.forEach(([type, h]) => source.removeEventListener(type, h));
       source.close();
     };
-  }, [user && user.id]);
+  }, [user && user.id, pendingPinChange]);
 
   return <LiveContext.Provider value={targetRef.current}>{children}</LiveContext.Provider>;
 }

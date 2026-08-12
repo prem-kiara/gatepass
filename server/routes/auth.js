@@ -137,6 +137,18 @@ router.post('/login-pin', identityLimiter('userId'), async (req, res, next) => {
       return res.status(429).json({ error: 'PIN_LOCKED', message: `Too many wrong PINs. Try again in ${mins} min, or sign in with a password.` });
     }
 
+    // Serving the lock earns a clean slate. The counter is otherwise only reset
+    // by a *successful* sign-in, so it would still sit at the limit and the very
+    // next mistype would re-lock for another 15 minutes — stranding a guard who
+    // did exactly what they were told to do and waited.
+    // The WHERE clause is the guard: an active lock already returned above.
+    if (user.pin_locked_until) {
+      await query(
+        'UPDATE users SET pin_failed_attempts = 0, pin_locked_until = NULL WHERE id = $1 AND pin_locked_until <= now()',
+        [user.id]
+      );
+    }
+
     const ok = await verifyPin(pin, user.pin_hash);
     if (!ok) {
       // Count the miss and decide the lock in ONE statement: a read-then-write
@@ -340,8 +352,11 @@ router.post('/webauthn/login/verify', async (req, res, next) => {
       user = await webauthn.verifyLogin(req, res, req.body || {});
     } catch (err) {
       // A passkey that fails verification is the most interesting failure of all
-      // — it means a credential was presented and rejected.
+      // — it means a credential was presented and rejected. Attribute it to the
+      // owner when the credential was recognised (err.userId); an unknown
+      // credential genuinely has nobody to name.
       await logAuth({
+        userId: err.userId || null,
         event: 'LOGIN_FAILED', method: 'WEBAUTHN', req,
         detail: { reason: err.reason || 'verification_failed' },
       });

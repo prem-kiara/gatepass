@@ -144,6 +144,27 @@ check "PIN locks after 5 wrong tries" "$code" "429"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"246803\"}")
 check "correct PIN refused while locked" "$code" "429"
 
+echo "--- serving the lock earns a clean slate ---"
+# The counter used to reset only on a successful sign-in, so after the lock
+# expired it still sat at the limit and ONE mistype re-locked for another 15
+# minutes — stranding a guard who waited exactly as instructed.
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_failed_attempts=5, pin_locked_until=now() - interval '1 minute' WHERE id='$LOCK_ID'" > /dev/null
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"000000\"}")
+check "one mistype after an expired lock is not an instant re-lock" "$code" "401"
+ATT=$(psql -qtAX -d "$DB" -c "SELECT pin_failed_attempts FROM users WHERE id='$LOCK_ID'")
+check "counter restarted from the expired lock" "$ATT" "1"
+RELOCK=$(psql -qtAX -d "$DB" -c "SELECT COALESCE((pin_locked_until > now()),false) FROM users WHERE id='$LOCK_ID'")
+check "not re-locked" "$RELOCK" "f"
+# And the guard can still get in with the right PIN after serving a lock.
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_failed_attempts=5, pin_locked_until=now() - interval '1 minute' WHERE id='$LOCK_ID'" > /dev/null
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"246803\"}")
+check "correct PIN works once the lock has expired" "$code" "200"
+# An ACTIVE lock must still refuse — the fix must not defang the lockout.
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_failed_attempts=5, pin_locked_until=now() + interval '10 minutes' WHERE id='$LOCK_ID'" > /dev/null
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$LOCK_ID\",\"pin\":\"246803\"}")
+check "an active lock still refuses the correct PIN" "$code" "429"
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_failed_attempts=0, pin_locked_until=NULL WHERE id='$LOCK_ID'" > /dev/null
+
 echo "--- superadmin reset (restore access without impersonation) ---"
 code=$(curl -s -o "$D/reset.json" -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$LOCK_ID/reset-pin")
 check "superadmin resets a locked guard" "$code" "200"

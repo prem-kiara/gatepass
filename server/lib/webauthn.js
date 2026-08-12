@@ -171,6 +171,10 @@ async function verifyLogin(req, res, body) {
     const err = new Error('That passkey could not be verified.');
     err.status = 401;
     err.reason = 'signature_invalid';
+    // We know whose credential was presented, so the ledger should say so —
+    // "a passkey was rejected" is far less useful than "*this account's* passkey
+    // was rejected", which is the row a superadmin most needs attributed.
+    err.userId = cred.uid;
     throw err;
   }
 
