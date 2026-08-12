@@ -46,6 +46,37 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-08-12 — Three login-flow fixes from the follow-up audit
+
+None critical; all three were the kind that degrade quietly rather than fail loudly.
+
+- **Serving a PIN lock now earns a clean slate.** The wrong-attempt counter was
+  only reset by a *successful* sign-in, so once the 15-minute lock expired it
+  still sat at the limit and a single mistype re-locked for another 15 minutes —
+  stranding a guard who waited exactly as instructed, and firing a fresh
+  superadmin alert each time. An expired lock is cleared before the attempt is
+  judged. An **active** lock still refuses, including the correct PIN.
+- **Live updates no longer die after a forced PIN change.** `/api/events`
+  correctly 403s a temp-PIN session, but EventSource treats that as fatal and
+  never retries, and the reconnect effect watched only the user's id — which does
+  not change when the guard finishes setting their PIN. The gate silently fell
+  back to 10s polling until someone reloaded.
+- **A rejected passkey is attributed to its owner.** When a *known* credential
+  fails verification we know whose it is, but the row was logged with no user —
+  leaving "—" in the Security feed on exactly the row where that matters. An
+  unknown credential still logs anonymously; there is genuinely nobody to name.
+
+e2e 170 → 175. The SSE fix was verified in-browser (no `/api/events` call while
+the forced-PIN screen is up, a 200 stream the moment it completes, and an admin's
+approval reaching the gate in ~1.5s — inside the polling interval, so it proves
+the stream rather than the fallback). The lock fix was re-verified against
+production with a throwaway account, since it is the one that can strand a guard.
+
+**Known, not fixed:** the failed-burst tripwire groups by user, so failures
+against *unknown* usernames (probing) are recorded but never alerted — an
+IP-based check would cover it. And a superadmin resetting their own password
+from the Users tab logs themselves out; use Settings → Change password instead.
+
 ## 2026-08-11 — Auth audit follow-up: closed the gaps the review found
 
 A review of the live sign-in records and the auth code found three places where
