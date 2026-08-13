@@ -72,10 +72,27 @@ approval reaching the gate in ~1.5s — inside the polling interval, so it prove
 the stream rather than the fallback). The lock fix was re-verified against
 production with a throwaway account, since it is the one that can strand a guard.
 
-**Known, not fixed:** the failed-burst tripwire groups by user, so failures
-against *unknown* usernames (probing) are recorded but never alerted — an
-IP-based check would cover it. And a superadmin resetting their own password
-from the Users tab logs themselves out; use Settings → Change password instead.
+**Known, not fixed:** a superadmin resetting their own password from the Users
+tab logs themselves out; use Settings → Change password instead.
+
+### Same day — per-source tripwire (closes the gap noted above)
+
+`alertSuspiciousSources` groups failures by **IP**, catching what the per-user
+check is structurally blind to: probing usernames that don't exist (no `user_id`
+to group by) and spraying one password across accounts (one failure each,
+forever under the per-account threshold). Alerts on 3+ unknown-username attempts
+or 3+ distinct accounts from one address in 10 minutes, naming the usernames
+tried. Deduped per source per window, so a sustained attack alerts once.
+
+Tuned **not** to fire on the shared gate phone — a guard fumbling their own PIN
+resolves to a real user and stays the per-account check's job. There is a test
+for that specific false positive.
+
+Verified against production: three probe requests to real non-existent usernames
+produced one alert per superadmin within a minute, carrying the source IP and the
+usernames tried, and no repeat over the next two sweeps. The push reached
+`superadmin`'s phone; it did **not** reach `prem`, who has no push device
+registered — the in-app bell is that account's only channel until they enable it.
 
 ## 2026-08-11 — Auth audit follow-up: closed the gaps the review found
 
