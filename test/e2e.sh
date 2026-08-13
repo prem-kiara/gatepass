@@ -258,6 +258,66 @@ RESETN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users
 GUARDN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type LIKE 'SECURITY_%' AND u.role<>'SUPERADMIN'")
 check "security alerts go to superadmins only" "$GUARDN" "0"
 
+echo "--- suspicious-source tripwire (probing / spraying) ---"
+# The per-account check groups by user, so it is blind to attempts on usernames
+# that do not exist (no user_id to group by) and to one password sprayed across
+# many accounts (one failure each). Both are "one source, many targets".
+# Notifications are append-only (the DELETE trigger blocks cleanup), so these
+# checks compare counts before and after rather than resetting the table.
+BEFORE_PROBE=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+for u in nosuchuser1 nosuchuser2 nosuchuser3; do
+  curl -s -o /dev/null -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$u\",\"password\":\"whatever123\"}"
+done
+UNKNOWN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM auth_events WHERE event='LOGIN_FAILED' AND user_id IS NULL AND detail->>'username' LIKE 'nosuchuser%'")
+[ "$UNKNOWN" -ge 3 ] && ok "probing on unknown usernames reaches the ledger ($UNKNOWN)" || bad "unknown logged" "got $UNKNOWN"
+# Drive the sweep directly rather than waiting for the 60s tick.
+( cd $ROOT/server && node -e "require('./lib/sweeper').alertSuspiciousSources().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})" ) > /dev/null 2>&1
+PROBE=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+[ "$PROBE" -gt "$BEFORE_PROBE" ] && ok "probing alerts the superadmin" || bad "probe alert" "no new alert (before=$BEFORE_PROBE after=$PROBE)"
+BODY=$(psql -qtAX -d "$DB" -c "SELECT body FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE' ORDER BY id DESC LIMIT 1")
+echo "$BODY" | grep -q "nosuchuser" && ok "alert names the usernames tried" || bad "alert body" "$BODY"
+# Second sweep in the same window must not re-alert for the same source.
+( cd $ROOT/server && node -e "require('./lib/sweeper').alertSuspiciousSources().then(()=>process.exit(0)).catch(()=>process.exit(1))" ) > /dev/null 2>&1
+AGAIN=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+check "does not re-alert for the same source in one window" "$AGAIN" "$PROBE"
+NONSUPER=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type='SECURITY_SUSPICIOUS_SOURCE' AND u.role<>'SUPERADMIN'")
+check "suspicious-source alerts go to superadmins only" "$NONSUPER" "0"
+
+echo "--- ...and the shared gate phone must NOT trip it ---"
+# One guard fumbling their own PIN repeatedly from the gate IP resolves to a real
+# user, so it is the per-account check's job, not this one. Age out the probing
+# rows so only the guard's fumbles are inside the window.
+psql -qtAX -d "$DB" -c "UPDATE auth_events SET at = now() - interval '2 hours' WHERE event='LOGIN_FAILED'" > /dev/null
+BEFORE_FALSE=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+for i in 1 2 3 4; do
+  curl -s -o /dev/null -X POST "$API/auth/login-pin" -H 'Content-Type: application/json' -d "{\"userId\":\"$GUARD_ID\",\"pin\":\"000001\"}"
+done
+( cd $ROOT/server && node -e "require('./lib/sweeper').alertSuspiciousSources().then(()=>process.exit(0)).catch(()=>process.exit(1))" ) > /dev/null 2>&1
+AFTER_FALSE=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+check "one guard fumbling their own PIN is not flagged as a source" "$AFTER_FALSE" "$BEFORE_FALSE"
+psql -qtAX -d "$DB" -c "UPDATE users SET pin_failed_attempts=0, pin_locked_until=NULL WHERE id='$GUARD_ID'" > /dev/null
+
+echo "--- ...but spraying across several accounts does ---"
+psql -qtAX -d "$DB" -c "UPDATE auth_events SET at = now() - interval '2 hours' WHERE event='LOGIN_FAILED'" > /dev/null
+# Every request in this suite comes from 127.0.0.1, so the earlier probe alert
+# would suppress this one by design (one alert per source per window). Age the
+# alerts out of the window rather than weakening the dedup we want to keep.
+psql -qtAX -d "$DB" -c "UPDATE notifications SET created_at = now() - interval '2 hours' WHERE type='SECURITY_SUSPICIOUS_SOURCE'" > /dev/null
+BEFORE_SPRAY=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+# One wrong password against three real accounts — each sees a single failure,
+# which the per-account threshold would never catch.
+for u in guard1 admin1 admin2; do
+  curl -s -o /dev/null -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$u\",\"password\":\"sprayed-guess-000\"}"
+done
+( cd $ROOT/server && node -e "require('./lib/sweeper').alertSuspiciousSources().then(()=>process.exit(0)).catch(()=>process.exit(1))" ) > /dev/null 2>&1
+AFTER_SPRAY=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE'")
+[ "$AFTER_SPRAY" -gt "$BEFORE_SPRAY" ] && ok "spraying one password across accounts is flagged" || bad "spray alert" "no new alert"
+SPRAYBODY=$(psql -qtAX -d "$DB" -c "SELECT body FROM notifications WHERE type='SECURITY_SUSPICIOUS_SOURCE' ORDER BY id DESC LIMIT 1")
+echo "$SPRAYBODY" | grep -q "3 different accounts" && ok "alert says how many accounts were hit" || bad "spray body" "$SPRAYBODY"
+psql -qtAX -d "$DB" -c "UPDATE auth_events SET at = now() - interval '2 hours' WHERE event='LOGIN_FAILED'" > /dev/null
+
 echo "=== 3c. Passkeys (biometric) — endpoint wiring ==="
 # The ceremony itself needs a real authenticator; here we prove the endpoints are
 # present, correctly gated, and returning a challenge.
