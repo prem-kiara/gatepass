@@ -10,6 +10,7 @@ const { requireRole } = require('../middleware/requireRole');
 const { str, normalizePhone, uuid, oneOf, isoDate, ValidationError } = require('../lib/validate');
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
 const { randomTempPin, hashPin } = require('../lib/pin');
+const { generateTempPassword } = require('../lib/tempPassword');
 const { logAuth } = require('../lib/authlog');
 const { bumpTokenVersion } = require('../middleware/auth');
 
@@ -30,6 +31,7 @@ function publicUser(u) {
     created_by_name: u.created_by_name || null,
     has_pin: Boolean(u.pin_hash),
     must_change_pin: Boolean(u.must_change_pin),
+    must_change_password: Boolean(u.must_change_password),
     pin_locked: Boolean(u.pin_locked_until && new Date(u.pin_locked_until) > new Date()),
   };
 }
@@ -113,9 +115,12 @@ router.patch('/users/:id', async (req, res, next) => {
     if (req.body.name !== undefined) add('name', str(req.body.name, 'Name', { required: true, max: 150 }));
     if (req.body.phone !== undefined) add('phone', normalizePhone(req.body.phone, 'Phone number'));
     if (req.body.role !== undefined) add('role', oneOf(req.body.role, 'Role', ROLES, { required: true }));
+    // Passwords are deliberately NOT settable here. An admin typing someone's
+    // new password knows it indefinitely, with nothing forcing a change — the
+    // borrow-access pattern the reset lever exists to avoid. Use
+    // POST /users/:id/reset-password, which issues a one-time secret instead.
     if (req.body.password !== undefined) {
-      const password = str(req.body.password, 'Password', { required: true, min: 8, max: 200 });
-      add('password_hash', await bcrypt.hash(password, 12));
+      throw new ValidationError('Use Reset password — it issues a one-time password the user must replace.', 'password');
     }
     if (req.body.is_active !== undefined) {
       const active = Boolean(req.body.is_active);
@@ -142,14 +147,57 @@ router.patch('/users/:id', async (req, res, next) => {
       params
     );
 
-    // A superadmin resetting someone's password must also cut their live
-    // sessions, or the reset only changes how they sign in next time.
-    if (req.body.password !== undefined) {
-      await bumpTokenVersion(id);
-      await logAuth({ userId: id, actorId: req.user.id, event: 'PASSWORD_CHANGED', req, detail: { by_admin: true } });
+    res.json({ user: publicUser(rows[0]) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/reset-password — the same restore-don't-borrow deal
+ * as the PIN reset, for the credential most people actually use.
+ *
+ * Issues a random one-time password, forces the user to replace it before they
+ * can do anything (must_change_password, enforced in requireAuth), ends their
+ * existing sessions, and records the reset in the append-only log naming the
+ * superadmin who did it. Returned exactly once — never stored in the clear.
+ */
+router.post('/users/:id/reset-password', async (req, res, next) => {
+  try {
+    const id = uuid(req.params.id, 'User', { required: true });
+
+    // Resetting your own password this way would lock you into the forced-change
+    // screen for no reason; Settings is the right door for that.
+    if (id === req.user.id) {
+      throw new ValidationError('Use Settings → Change password to change your own password.', 'id');
     }
 
-    res.json({ user: publicUser(rows[0]) });
+    const { rows } = await query('SELECT id, name, role FROM users WHERE id = $1', [id]);
+    const target = rows[0];
+    if (!target) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such user.' });
+
+    const tempPassword = generateTempPassword();
+    await query(
+      'UPDATE users SET password_hash = $2, must_change_password = true WHERE id = $1',
+      [id, await bcrypt.hash(tempPassword, 12)]
+    );
+    await bumpTokenVersion(id);
+    await logAuth({ userId: id, actorId: req.user.id, event: 'PASSWORD_RESET', req });
+
+    try {
+      const created = await withTransaction((client) =>
+        notify.securityAlert(client, {
+          type: 'SECURITY_PASSWORD_RESET',
+          title: 'A password was reset',
+          body: `${req.user.name} issued a one-time password for ${target.name}. They must set their own at next sign-in.`,
+        })
+      );
+      notify.scheduleDelivery(created);
+    } catch (e) {
+      console.error('[admin] password reset alert failed:', e.message);
+    }
+
+    res.json({ tempPassword });
   } catch (err) {
     next(err);
   }

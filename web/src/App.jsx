@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, homeFor } from './lib/auth';
 import { LoadingBlock } from './components/ui';
 import ForcePinChange from './components/ForcePinChange';
+import ForcePasswordChange from './components/ForcePasswordChange';
 import GateIdleLock from './components/GateIdleLock';
 import Login from './pages/Login';
 import Gate from './pages/Gate';
@@ -31,9 +32,11 @@ function RootRedirect() {
 export default function App() {
   const { user, loading } = useAuth();
 
-  // A guard signed in with a temporary PIN must set a private one before doing
-  // anything else — no route escapes this until it is done.
+  // A session holding an admin-issued credential must replace it before doing
+  // anything else — no route escapes this until it is done. Mirrors the API gate
+  // in requireAuth, and in the same order.
   if (!loading && user && user.must_change_pin) return <ForcePinChange />;
+  if (!loading && user && user.must_change_password) return <ForcePasswordChange />;
 
   return (
     <>

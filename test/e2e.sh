@@ -67,6 +67,8 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/approvals/pend
 echo "=== 3b. Guard PIN sign-in ==="
 GUARD_ID=$(firstid "$D/u1.json")
 needid "guard id" "$GUARD_ID"
+SUPER_ID=$(psql -qtAX -d "$DB" -c "SELECT id FROM users WHERE username = 'superadmin'")
+needid "superadmin id" "$SUPER_ID"
 # The name-picker lists only active security staff, id + name only.
 curl -s "$API/auth/gate-users" > "$D/gu.json"
 grep -q '"name":"Guard Ravi"' "$D/gu.json" && ok "picker lists the guard" || bad "picker" "$(cat "$D/gu.json")"
@@ -189,6 +191,86 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/temp.txt" -c "$D/temp.txt" 
 check "temp-PIN session can set a real PIN" "$code" "200"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/temp.txt" "$API/visits/today")
 check "gate opens once a real PIN is set" "$code" "200"
+
+echo "--- one-time password reset (restore, don't borrow) ---"
+# An admin typing someone's new password would know it indefinitely. The lever
+# issues a one-time secret instead, and the API — not just the UI — refuses to
+# let that session do anything until it has been replaced.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" -X PATCH "$API/admin/users/$ADMIN1_ID" \
+  -H 'Content-Type: application/json' -d '{"password":"admin-typed-this"}')
+check "an admin can no longer type someone's password" "$code" "400"
+
+mk "Reset Target" resettarget origpass123 ADMIN > "$D/rt.json"
+RT_ID=$(firstid "$D/rt.json")
+needid "reset target id" "$RT_ID"
+login resettarget origpass123 "$D/rt1.txt" > /dev/null
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt1.txt" "$API/approvals/pending")
+check "target has a working session before the reset" "$code" "200"
+
+code=$(curl -s -o "$D/pwreset.json" -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$RT_ID/reset-password")
+check "superadmin issues a one-time password" "$code" "200"
+TEMPPW=$(sed -n 's/.*"tempPassword":"\([^"]*\)".*/\1/p' "$D/pwreset.json")
+[ -n "$TEMPPW" ] && ok "reset returns a one-time password" || bad "temp password" "$(cat "$D/pwreset.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt1.txt" "$API/approvals/pending")
+check "the reset ends the target's existing session" "$code" "401"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+  -d '{"username":"resettarget","password":"origpass123"}')
+check "the old password no longer works" "$code" "401"
+
+code=$(curl -s -o "$D/tpl.json" -c "$D/rt2.txt" -w '%{http_code}' -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"resettarget\",\"password\":\"$TEMPPW\"}")
+check "the one-time password signs in" "$code" "200"
+grep -q '"must_change_password":true' "$D/tpl.json" && ok "and forces a change" || bad "must_change_password" "$(cat "$D/tpl.json")"
+TPM=$(psql -qtAX -d "$DB" -c "SELECT method FROM auth_events WHERE user_id='$RT_ID' AND event='LOGIN' ORDER BY at DESC LIMIT 1")
+check "ledger records it as a one-time password sign-in" "$TPM" "TEMP_PASSWORD"
+
+echo "--- ...and that session is walled off until it is replaced ---"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt2.txt" "$API/approvals/pending")
+check "temp-password session cannot use the app" "$code" "403"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt2.txt" "$API/auth/me")
+check "but can read its own identity" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt2.txt" -c "$D/rt2.txt" -X POST "$API/auth/change-password" \
+  -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$TEMPPW\",\"newPassword\":\"mynewpass456\"}")
+check "and can set its own password" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/rt2.txt" "$API/approvals/pending")
+check "full access returns once replaced" "$code" "200"
+FLAG=$(psql -qtAX -d "$DB" -c "SELECT must_change_password FROM users WHERE id='$RT_ID'")
+check "the forced-change flag is cleared" "$FLAG" "f"
+
+echo "--- the gate applies however the session signed in ---"
+# A guard with a pending password reset must be walled off even when they sign
+# in with their PIN — the temporary password is still live out there.
+psql -qtAX -d "$DB" -c "UPDATE users SET must_change_password=true WHERE id='$GUARD_ID'" > /dev/null
+code=$(curl -s -o /dev/null -c "$D/gpw.txt" -w '%{http_code}' -X POST "$API/auth/login-pin" \
+  -H 'Content-Type: application/json' -d "{\"userId\":\"$GUARD_ID\",\"pin\":\"736251\"}")
+check "PIN sign-in still succeeds" "$code" "200"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/gpw.txt" "$API/visits/today")
+check "but a pending password reset still walls off the gate" "$code" "403"
+psql -qtAX -d "$DB" -c "UPDATE users SET must_change_password=false WHERE id='$GUARD_ID'" > /dev/null
+
+echo "--- reset is logged, alerted, and refuses self-service ---"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$SUPER_ID/reset-password")
+check "a superadmin cannot reset their own password this way" "$code" "400"
+curl -s -b "$D/su.txt" "$API/admin/users/$RT_ID/auth-events" > "$D/rtae.json"
+grep -q '"event":"PASSWORD_RESET"' "$D/rtae.json" && ok "PASSWORD_RESET recorded" || bad "reset log" "$(head -c 200 "$D/rtae.json")"
+grep -q '"actor_name":"Super Admin"' "$D/rtae.json" && ok "and names the superadmin who did it" || bad "reset actor" ""
+PWALERT=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type='SECURITY_PASSWORD_RESET' AND u.role='SUPERADMIN'")
+[ "$PWALERT" -ge 1 ] && ok "superadmins are alerted to the reset ($PWALERT)" || bad "reset alert" "got $PWALERT"
+PWLEAK=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.type='SECURITY_PASSWORD_RESET' AND u.role<>'SUPERADMIN'")
+check "the alert goes to superadmins only" "$PWLEAK" "0"
+# The one-time password must never be recoverable from anything we stored.
+LEAKED=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM auth_events WHERE detail::text LIKE '%$TEMPPW%'")
+check "the one-time password is not written to the ledger" "$LEAKED" "0"
+
+# Retire the test admin: leaving it active would add a fourth approver to the
+# broadcast fan-out the notification section counts later.
+curl -s -o /dev/null -b "$D/su.txt" -X PATCH "$API/admin/users/$RT_ID" \
+  -H 'Content-Type: application/json' -d '{"is_active":false}'
+
+echo "--- it works for a guard too ---"
+code=$(curl -s -o "$D/gpwr.json" -w '%{http_code}' -b "$D/su.txt" -X POST "$API/admin/users/$LOCK_ID/reset-password")
+check "a security account can be reset the same way" "$code" "200"
+psql -qtAX -d "$DB" -c "UPDATE users SET must_change_password=false WHERE id='$LOCK_ID'" > /dev/null
 
 echo "--- a credential change ends other sessions ---"
 # Two independent sessions for the same admin; changing the password from one

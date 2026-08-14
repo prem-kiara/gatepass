@@ -149,6 +149,7 @@ function PinLogin({ onUsePassword }) {
 /** Password flow — the backup for everyone, and how admins/superadmin sign in. */
 function PasswordLogin({ onUsePin }) {
   const { login, loginPasskey } = useAuth();
+  const [showForgot, setShowForgot] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
@@ -214,6 +215,29 @@ function PasswordLogin({ onUsePin }) {
       <button type="submit" className="btn-primary w-full text-lg" disabled={submitting}>
         {submitting ? <><Spinner className="h-5 w-5 text-white" /> {L.login.signingIn}</> : L.login.submit}
       </button>
+
+      {/* There is no email or SMS channel, so self-service reset would be
+          indistinguishable from account takeover. Tell people the real route
+          instead of leaving them at a dead end. */}
+      {showForgot ? (
+        <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          <p>{L.login.forgotAsk}</p>
+          <p className="mt-2">{L.login.forgotGuard}</p>
+          <button
+            type="button" onClick={() => setShowForgot(false)}
+            className="mt-2 font-semibold text-brand-700"
+          >
+            {L.login.forgotClose}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button" onClick={() => setShowForgot(true)}
+          className="w-full text-center text-sm font-medium text-slate-500 hover:text-slate-700"
+        >
+          {L.login.forgot}
+        </button>
+      )}
       {onUsePin && (
         <div className="border-t border-slate-100 pt-3">
           <SecondaryButton onClick={onUsePin}>{L.login.usePin}</SecondaryButton>

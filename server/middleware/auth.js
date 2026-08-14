@@ -74,8 +74,8 @@ async function requireAuth(req, res, next) {
 
   try {
     const { rows } = await query(
-      `SELECT id, name, username, phone, role, is_active, must_change_pin, token_version,
-              (pin_hash IS NOT NULL) AS pin_hash
+      `SELECT id, name, username, phone, role, is_active, must_change_pin, must_change_password,
+              token_version, (pin_hash IS NOT NULL) AS pin_hash
        FROM users WHERE id = $1`,
       [payload.sub]
     );
@@ -91,33 +91,42 @@ async function requireAuth(req, res, next) {
     }
     req.user = user;
     // Chained rather than mounted per-route so a future endpoint cannot forget it.
-    return requirePinChangeDone(req, res, next);
+    return requireCredentialChangeDone(req, res, next);
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * A guard signed in with a temporary PIN must replace it before doing anything
- * else. The React client shows a blocking screen, but the client is not the
- * enforcement point: the superadmin who issued that temporary PIN knows it, so
- * without this gate they could drive the API as the guard. "Restore access, not
- * borrow it" has to hold at the API, not just in the UI.
+ * A session still holding a credential someone else issued must replace it
+ * before doing anything else.
+ *
+ * The React client shows a blocking screen, but the client is not the
+ * enforcement point: the superadmin who issued that temporary PIN or password
+ * knows it, so without this gate they could drive the API as the user.
+ * "Restore access, not borrow it" has to hold at the API, not just in the UI.
+ *
+ * Applies whichever way the session authenticated — a passkey or PIN sign-in
+ * does not excuse a temporary password still being live out there.
  */
-const PIN_CHANGE_ALLOWED = [
-  'POST /api/auth/pin',
-  'GET /api/auth/me',
-  'POST /api/auth/logout',
+const ALWAYS_ALLOWED = ['GET /api/auth/me', 'POST /api/auth/logout'];
+
+const PENDING_CREDENTIAL = [
+  { flag: 'must_change_pin', fix: 'POST /api/auth/pin', error: 'PIN_CHANGE_REQUIRED', message: 'Set your own PIN before continuing.' },
+  { flag: 'must_change_password', fix: 'POST /api/auth/change-password', error: 'PASSWORD_CHANGE_REQUIRED', message: 'Set your own password before continuing.' },
 ];
 
-function requirePinChangeDone(req, res, next) {
-  if (!req.user || !req.user.must_change_pin) return next();
+function requireCredentialChangeDone(req, res, next) {
+  if (!req.user) return next();
+  // PIN first: a guard could in principle be flagged for both, and the PIN is
+  // what they will actually sign in with tomorrow.
+  const pending = PENDING_CREDENTIAL.find((c) => req.user[c.flag]);
+  if (!pending) return next();
+
   const route = `${req.method} ${req.baseUrl}${req.path}`.replace(/\/$/, '');
-  if (PIN_CHANGE_ALLOWED.includes(route)) return next();
-  return res.status(403).json({
-    error: 'PIN_CHANGE_REQUIRED',
-    message: 'Set your own PIN before continuing.',
-  });
+  if (route === pending.fix || ALWAYS_ALLOWED.includes(route)) return next();
+
+  return res.status(403).json({ error: pending.error, message: pending.message });
 }
 
 module.exports = {
@@ -125,6 +134,6 @@ module.exports = {
   setAuthCookie,
   clearAuthCookie,
   requireAuth,
-  requirePinChangeDone,
+  requireCredentialChangeDone,
   bumpTokenVersion,
 };

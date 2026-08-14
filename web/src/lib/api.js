@@ -83,6 +83,7 @@ export const admin = {
   createUser: (payload) => api.post('/api/admin/users', payload),
   updateUser: (id, payload) => api.patch(`/api/admin/users/${id}`, payload),
   resetPin: (id) => api.post(`/api/admin/users/${id}/reset-pin`),
+  resetPassword: (id) => api.post(`/api/admin/users/${id}/reset-password`),
   authEvents: (id) => api.get(`/api/admin/users/${id}/auth-events`),
   authEventsAll: (params) => api.get(`/api/admin/auth-events?${new URLSearchParams(params)}`),
   visits: (params) => api.get(`/api/admin/visits?${new URLSearchParams(params)}`),

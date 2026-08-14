@@ -43,6 +43,7 @@ function publicUser(user) {
     phone: user.phone,
     role: user.role,
     must_change_pin: Boolean(user.must_change_pin),
+    must_change_password: Boolean(user.must_change_password),
     has_pin: Boolean(user.pin_hash),
   };
 }
@@ -75,7 +76,8 @@ router.post('/login', identityLimiter('username'), async (req, res, next) => {
     const password = str(req.body.password, 'Password', { required: true, max: 200 });
 
     const { rows } = await query(
-      `SELECT id, name, username, phone, password_hash, role, is_active, pin_hash, must_change_pin, token_version
+      `SELECT id, name, username, phone, password_hash, role, is_active, pin_hash,
+              must_change_pin, must_change_password, token_version
        FROM users WHERE lower(username) = $1`,
       [username]
     );
@@ -98,7 +100,12 @@ router.post('/login', identityLimiter('username'), async (req, res, next) => {
     }
 
     setAuthCookie(res, signToken(user), user.role);
-    await logAuth({ userId: user.id, actorId: user.id, event: 'LOGIN', method: 'PASSWORD', req });
+    // Distinguish a sign-in on an admin-issued password from a real one, exactly
+    // as TEMP_PIN does — the ledger should show which credential was in play.
+    await logAuth({
+      userId: user.id, actorId: user.id, event: 'LOGIN',
+      method: user.must_change_password ? 'TEMP_PASSWORD' : 'PASSWORD', req,
+    });
     res.json({ user: publicUser(user) });
   } catch (err) {
     next(err);
@@ -113,8 +120,8 @@ router.post('/login-pin', identityLimiter('userId'), async (req, res, next) => {
     const pin = str(req.body.pin, 'PIN', { required: true, max: 12 });
 
     const { rows } = await query(
-      `SELECT id, name, username, phone, role, is_active, pin_hash, must_change_pin, token_version,
-              pin_failed_attempts, pin_locked_until
+      `SELECT id, name, username, phone, role, is_active, pin_hash, must_change_pin,
+              must_change_password, token_version, pin_failed_attempts, pin_locked_until
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -298,7 +305,10 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'WRONG_PASSWORD', message: 'Your current password is incorrect.' });
     }
 
-    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(next_, 12), req.user.id]);
+    await query(
+      'UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2',
+      [await bcrypt.hash(next_, 12), req.user.id]
+    );
     // Changing a password must sign out anyone else holding a session.
     const tokenVersion = await bumpTokenVersion(req.user.id);
     setAuthCookie(res, signToken({ ...req.user, token_version: tokenVersion }), req.user.role);

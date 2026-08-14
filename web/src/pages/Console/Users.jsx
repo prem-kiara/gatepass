@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import L from '../../labels';
 import { admin } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { formatDate } from '../../lib/format';
 import { LoadingBlock, EmptyState, ErrorBanner, Modal, Spinner, Toast } from '../../components/ui';
 
@@ -25,10 +26,9 @@ function UserForm({ user, onClose, onSaved }) {
     setSaving(true);
     try {
       if (editing) {
-        const payload = { name: form.name, phone: form.phone, role: form.role };
-        // Blank means "leave the password alone" — sending it would reset it.
-        if (form.password) payload.password = form.password;
-        await admin.updateUser(user.id, payload);
+        // No password here on purpose: an admin-typed password is one they would
+        // then know indefinitely. Use Reset password, which issues a one-time one.
+        await admin.updateUser(user.id, { name: form.name, phone: form.phone, role: form.role });
       } else {
         await admin.createUser(form);
       }
@@ -96,27 +96,29 @@ function UserForm({ user, onClose, onSaved }) {
           </select>
         </div>
 
-        <div>
-          <label className="label" htmlFor="u-password">
-            {editing ? L.console.users.newPassword : L.console.users.password}
-            {editing && <span className="font-normal text-slate-500"> ({L.optional})</span>}
-          </label>
-          <input
-            id="u-password"
-            type="password"
-            className="field"
-            value={form.password}
-            onChange={(e) => set('password', e.target.value)}
-            autoComplete="new-password"
-          />
-          <p className="mt-1 text-sm text-slate-500">{L.console.users.passwordHint}</p>
-        </div>
+        {!editing && (
+          <div>
+            <label className="label" htmlFor="u-password">{L.console.users.password}</label>
+            <input
+              id="u-password"
+              type="password"
+              className="field"
+              value={form.password}
+              onChange={(e) => set('password', e.target.value)}
+              autoComplete="new-password"
+            />
+            <p className="mt-1 text-sm text-slate-500">{L.console.users.passwordHint}</p>
+          </div>
+        )}
       </div>
     </Modal>
   );
 }
 
 export default function Users() {
+  // Resetting your own password here would strand you on the forced-change
+  // screen; Settings is the right door, so the button is hidden on your own row.
+  const { user: me } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -124,6 +126,7 @@ export default function Users() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState(null);
   const [pinReset, setPinReset] = useState(null); // { user, tempPin }
+  const [passwordReset, setPasswordReset] = useState(null); // { user, tempPassword }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,6 +149,17 @@ export default function Users() {
     if (user.is_active && !window.confirm(L.console.users.confirmDeactivate(user.name))) return;
     try {
       await admin.updateUser(user.id, { is_active: !user.is_active });
+      await load();
+    } catch (err) {
+      setToast({ message: err.message, tone: 'error' });
+    }
+  };
+
+  const resetPassword = async (user) => {
+    if (!window.confirm(L.console.users.confirmResetPassword(user.name))) return;
+    try {
+      const { tempPassword } = await admin.resetPassword(user.id);
+      setPasswordReset({ user, tempPassword });
       await load();
     } catch (err) {
       setToast({ message: err.message, tone: 'error' });
@@ -225,8 +239,13 @@ export default function Users() {
                         {L.console.users.resetPin}
                       </button>
                     )}
+                    {u.is_active && u.id !== (me && me.id) && (
+                      <button type="button" className="btn-ghost px-4 text-sm" onClick={() => resetPassword(u)}>
+                        {L.console.users.resetPassword}
+                      </button>
+                    )}
                     <button type="button" className="btn-ghost px-4 text-sm" onClick={() => setEditing(u)}>
-                      {L.console.users.resetPassword}
+                      {L.console.users.editTitle}
                     </button>
                     <button
                       type="button"
@@ -275,6 +294,26 @@ export default function Users() {
             <p className="text-slate-600">{L.console.users.pinResetBody(pinReset.user.name)}</p>
             <div className="rounded-2xl bg-slate-100 py-6 text-4xl font-bold tracking-[0.4em] text-slate-800">
               {pinReset.tempPin}
+            </div>
+            <p className="text-sm text-slate-500">{L.console.users.pinResetLogged}</p>
+          </div>
+        </Modal>
+      )}
+
+      {passwordReset && (
+        <Modal
+          title={L.console.users.passwordResetTitle}
+          onClose={() => setPasswordReset(null)}
+          footer={
+            <button type="button" className="btn-primary w-full" onClick={() => setPasswordReset(null)}>
+              {L.done}
+            </button>
+          }
+        >
+          <div className="space-y-4 text-center">
+            <p className="text-slate-600">{L.console.users.passwordResetBody(passwordReset.user.name)}</p>
+            <div className="rounded-2xl bg-slate-100 py-6 font-mono text-2xl font-bold tracking-widest text-slate-800">
+              {passwordReset.tempPassword}
             </div>
             <p className="text-sm text-slate-500">{L.console.users.pinResetLogged}</p>
           </div>

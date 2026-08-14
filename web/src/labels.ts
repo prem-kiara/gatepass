@@ -60,10 +60,28 @@ export const L = {
     savePin: 'Save PIN',
     pinSaved: 'PIN saved.',
 
+    // Forgot password
+    forgot: 'Forgot password?',
+    forgotGuard: 'If you work at the gate, tap Back and sign in with your PIN instead.',
+    forgotAsk: 'Ask a superadmin to reset it from Console → Users. They will give you a one-time password, and you choose your own as soon as you sign in.',
+    forgotClose: 'Got it',
+
     // Biometric sign-in (admins)
     useBiometric: 'Sign in with Face ID / fingerprint',
     biometricFailed: 'Biometric sign-in didn’t work. Use your password.',
     biometricCancelled: 'Biometric sign-in was cancelled.',
+  },
+
+  // --- forced password change (after an admin reset) ---
+  forcePassword: {
+    title: 'Set your password',
+    why: 'You signed in with a one-time password. Choose your own now — nobody else will know it.',
+    current: 'One-time password',
+    next: 'New password',
+    confirm: 'Confirm new password',
+    hint: 'At least 8 characters.',
+    mismatch: 'The two passwords do not match.',
+    save: 'Save password',
   },
 
   // --- account settings ---
@@ -322,6 +340,11 @@ export const L = {
       pinResetBody: (name: string) =>
         `Give this to ${name}. They must enter it once, then set their own new PIN. It cannot be shown again.`,
       pinResetLogged: 'This reset has been recorded in the sign-in log.',
+      confirmResetPassword: (name: string) =>
+        `Reset ${name}'s password? They will get a one-time password and must set a new one at next sign-in.`,
+      passwordResetTitle: 'One-time password',
+      passwordResetBody: (name: string) =>
+        `Give this to ${name}. They must sign in with it once, then choose their own. It cannot be shown again.`,
     },
 
     // Sign-in ledger
@@ -346,6 +369,7 @@ export const L = {
         PIN_RESET: 'PIN reset by admin',
         PIN_LOCKED: 'PIN locked',
         PASSWORD_CHANGED: 'Password changed',
+        PASSWORD_RESET: 'Password reset by admin',
         WEBAUTHN_REGISTERED: 'Biometric added',
         WEBAUTHN_REMOVED: 'Biometric removed',
       } as Record<string, string>,
@@ -353,6 +377,7 @@ export const L = {
         PASSWORD: 'password',
         PIN: 'PIN',
         TEMP_PIN: 'one-time PIN',
+        TEMP_PASSWORD: 'one-time password',
         WEBAUTHN: 'biometric',
       } as Record<string, string>,
       reasons: {
