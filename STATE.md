@@ -46,6 +46,44 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-08-13 — One-time password reset, for everyone
+
+Password recovery was both the clunkiest flow and the last place an admin could
+end up holding a working credential of someone else's. "Reset password" opened
+the edit form and the superadmin **typed the new password** — so they knew it
+indefinitely and nothing forced the user to change it. Same borrow-access
+pattern the PIN reset exists to prevent, except it applied to admins, who
+approve visits.
+
+- `POST /api/admin/users/:id/reset-password` issues a random one-time password
+  (12 chars, grouped, alphabet stripped of anything ambiguous when read down a
+  phone), shown exactly once and never stored in the clear.
+- `must_change_password` (011) is enforced in `requireAuth`, **generalised** from
+  the PIN gate so both credentials share one chained check — and it applies
+  however the session authenticated, since a passkey or PIN sign-in does not
+  excuse a temporary password still being live.
+- The reset ends the user's sessions, logs `PASSWORD_RESET` naming the
+  superadmin, and alerts every superadmin.
+- Typing a password into `PATCH /users/:id` is now refused outright — the hole
+  should not outlive its replacement.
+- Frontend: a `ForcePasswordChange` screen mirroring the PIN one, the console
+  reveal modal, and a **"Forgot password?"** panel on login explaining the real
+  route rather than leaving a dead end.
+
+**Deliberately not self-service.** With no email or SMS channel, a "send me a
+reset link" flow would be indistinguishable from account takeover. If that is
+wanted later, the WappCloud credentials the wealth app already uses would make a
+WhatsApp OTP feasible — but it makes phone possession equal account ownership,
+which is its own decision.
+
+**Scope cut, on purpose:** *creating* a user still takes an initial password
+from the superadmin without forcing a change. Flipping that would have broken
+onboarding mid-stream; clean follow-up if wanted.
+
+e2e 183 → 206, including an assertion that the one-time password never reaches
+the ledger. Verified on production with a throwaway account (9 checks), then
+removed.
+
 ## 2026-08-12 — Three login-flow fixes from the follow-up audit
 
 None critical; all three were the kind that degrade quietly rather than fail loudly.
