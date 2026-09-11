@@ -74,7 +74,7 @@ export function StatTile({ label, value, display, drill, delta, hint, hero = fal
       {hint && <p className="mt-1 text-xs leading-snug text-slate-400">{hint}</p>}
     </>
   );
-  const cls = `card block p-4 text-left ${hero ? 'sm:col-span-2 lg:row-span-2 flex flex-col justify-center' : ''}`;
+  const cls = `card block min-w-0 p-4 text-left ${hero ? 'sm:col-span-2 lg:row-span-2 flex flex-col justify-center' : ''}`;
   if (!drill) return <div className={cls}>{body}</div>;
   return (
     <Link to={drillHref(drill)} className={`${cls} transition hover:border-brand-300 hover:shadow-md ${focusRing}`}>
@@ -88,7 +88,10 @@ export function StatTile({ label, value, display, drill, delta, hint, hero = fal
 export function ChartCard({ title, hint, table, children, className = '' }) {
   const [asTable, setAsTable] = useState(false);
   return (
-    <section className={`card viz p-4 ${className}`}>
+    // min-w-0: as a grid item this card would otherwise refuse to shrink below
+    // its widest child, pushing the whole column — and the page — past a
+    // phone's edge instead of letting that child scroll inside the card.
+    <section className={`card viz min-w-0 p-4 ${className}`}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-bold text-slate-800">{title}</h3>
@@ -191,7 +194,7 @@ export function ColumnChart({ buckets, bucket }) {
   const max = Math.max(0, ...buckets.map((b) => b.visits.value));
   const top = niceMax(max);
   const ticks = [0, top / 2, top];
-  const labelEvery = Math.max(1, Math.ceil(buckets.length / 8));
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / 6));
   const peak = buckets.reduce((best, b, i) => (b.visits.value > (buckets[best]?.visits.value ?? -1) ? i : best), 0);
   const H = 160;
 
@@ -280,7 +283,9 @@ export function Heatmap({ cells }) {
   return (
     <div ref={ref} className="relative">
       <div className="overflow-x-auto">
-        <div className="min-w-[520px]">
+        {/* 16px per hour column + the weekday labels: the usual 08–20 grid fits
+            a phone; a day spanning more hours scrolls inside the card. */}
+        <div style={{ minWidth: 40 + hours.length * 16 }}>
           <div className="ml-10 flex gap-[2px] text-[11px] text-[var(--viz-muted)]">
             {hours.map((h) => (
               <span key={h} className="flex-1 text-center">{h % 2 === 0 ? String(h).padStart(2, '0') : ''}</span>

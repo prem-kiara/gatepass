@@ -233,7 +233,8 @@ export default function Users() {
                       {u.created_by_name && ` · ${L.console.users.createdBy} ${u.created_by_name}`}
                     </p>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  {/* Full width on phones so the buttons wrap; a shrink-0 row of four buttons ran 130px past a phone screen. */}
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
                     {u.role === 'SECURITY' && u.is_active && (
                       <button type="button" className="btn-ghost px-4 text-sm" onClick={() => resetPin(u)}>
                         {L.console.users.resetPin}

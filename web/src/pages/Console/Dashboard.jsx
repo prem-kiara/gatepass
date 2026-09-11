@@ -29,7 +29,7 @@ function RangeBar({ params, onChange, range }) {
   const custom = params.preset === 'custom';
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="relative flex flex-wrap items-center gap-2">
       {PRESETS.map((p) => (
         <button
           key={p}
@@ -43,7 +43,7 @@ function RangeBar({ params, onChange, range }) {
           {D.presets[p]}
         </button>
       ))}
-      <details className="relative" open={custom || undefined}>
+      <details open={custom || undefined}>
         <summary
           className={`cursor-pointer list-none rounded-full px-3.5 py-1.5 text-sm font-semibold ring-1 ${
             custom ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'
@@ -51,10 +51,10 @@ function RangeBar({ params, onChange, range }) {
         >
           {D.presets.custom}
         </summary>
-        <div className="absolute z-30 mt-2 flex flex-wrap items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-          <input type="date" className="field !py-1.5 text-sm" value={from} max={to || range?.today}
+        <div className="absolute left-0 top-full z-30 mt-2 flex w-[min(22rem,calc(100vw-2rem))] flex-wrap items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+          <input type="date" className="field min-w-0 flex-1 !py-1.5 text-sm" value={from} max={to || range?.today}
                  onChange={(e) => setFrom(e.target.value)} aria-label={L.console.visits.from} />
-          <input type="date" className="field !py-1.5 text-sm" value={to} min={from || undefined} max={range?.today}
+          <input type="date" className="field min-w-0 flex-1 !py-1.5 text-sm" value={to} min={from || undefined} max={range?.today}
                  onChange={(e) => setTo(e.target.value)} aria-label={L.console.visits.to} />
           <button type="button" className="btn-primary !py-1.5 text-sm" disabled={!from || !to}
                   onClick={() => onChange({ preset: 'custom', from, to })}>

@@ -46,6 +46,24 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-09-11 — Fix: dashboard overflowed the screen on phones
+
+Reported from a real iPhone: from "When visitors arrive" down, every card ran off
+the right edge. The heatmap had a fixed 520px minimum width, meant to scroll
+inside its card — but it sat in a CSS grid, and grid items default to
+`min-width: auto`, so the whole column grew to fit it and dragged every card in
+that grid (and the page) past the screen. Fixed at the root: chart cards and stat
+tiles are `min-w-0` so wide content scrolls inside them; the heatmap now sizes to
+the hour columns it actually shows (fits a phone with no inner scroll). Also
+anchored the custom-date popup inside the screen, and fixed an older overflow on
+the Users tab (a non-wrapping row of four buttons, 131px too wide on phones).
+
+**How it slipped through:** the first phone check only looked at the top of the
+dashboard — the screenshot tool can't render scrolled pages, and the bug lived
+below the fold. Now verified by measurement instead of screenshots: on every
+console page, at 390, 375 and 320px, including every chart switched to table
+view and the date popup open, the page is no wider than the screen.
+
 ## 2026-09-11 — Superadmin dashboard: who has visited, with drill-down on everything
 
 Superadmins now land on a dashboard instead of the approval queue. Chosen with
