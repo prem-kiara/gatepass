@@ -84,6 +84,19 @@ to the headline. Runs in the e2e suite and read-only against production
 bucket on the person page that would have opened every company visit instead of
 just the blank ones, and org labels showing a lowercase spelling.
 
+**Verified on production at launch** (read-only, `reconcile.js --direct`): all
+645 dashboard numbers match their drill-downs across six ranges; the full walk
+runs in under a second. Gokul promoted to SUPERADMIN.
+
+**What the real data shows (not bugs — gate practice the dashboard now exposes):**
+- 89 of the last 90 visits are logged as **Private**; the only Company entry is a
+  keyboard-mash ("Gjajsnns"). Private is the one option that needs no typing, so
+  "where they come from" is near-empty until guards pick the real category (or
+  Private starts requiring a detail — a product decision, not made here).
+- 81 of 90 visits were never finished at the gate: 36 still "inside" from earlier
+  days, 45 approved but never checked in. Karthick makes 88 of 90 decisions, with
+  a typical wait of ~2 min 20 s.
+
 Charts follow the data-viz method: one validated series colour and a validated
 single-hue ramp (both pass the palette checker against the white card surface),
 one axis, thin marks, a table view for every chart, tooltips on hover and focus,
