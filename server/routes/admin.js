@@ -9,6 +9,8 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 const { str, normalizePhone, uuid, oneOf, isoDate, ValidationError } = require('../lib/validate');
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
+const { buildVisitFilters, orderBy: visitOrder } = require('../lib/visitFilters');
+const { computeInsights, countVisits, listVisitors, visitorProfile } = require('../lib/insights');
 const { randomTempPin, hashPin } = require('../lib/pin');
 const { generateTempPassword } = require('../lib/tempPassword');
 const { logAuth } = require('../lib/authlog');
@@ -342,60 +344,72 @@ router.get('/auth-events', async (req, res, next) => {
 
 /* ----------------------------------------------------------------- visits */
 
-/** Shared filter builder for the visits table and the CSV export. */
-function buildVisitFilters(q) {
-  const params = [];
-  const clauses = [];
-  const add = (sqlFn, value) => {
-    params.push(value);
-    clauses.push(sqlFn(params.length));
-  };
-
-  const from = isoDate(q.from, 'From date');
-  const to = isoDate(q.to, 'To date');
-  const status = oneOf(q.status, 'Status', ['PENDING', 'APPROVED', 'REJECTED', 'INSIDE', 'CHECKED_OUT']);
-  const approvedBy = uuid(q.approved_by, 'Approved by');
-  const search = str(q.q, 'Search', { max: 100 });
-
-  // Bind the timezone only when a date filter actually references it. Postgres
-  // rejects a statement carrying a parameter no clause uses, because it cannot
-  // infer that parameter's type.
-  let tz = null;
-  if (from || to) {
-    params.push(config.timezone);
-    tz = params.length;
-  }
-
-  if (from) add((i) => `(v.created_at AT TIME ZONE $${tz}::text)::date >= $${i}::date`, from);
-  if (to) add((i) => `(v.created_at AT TIME ZONE $${tz}::text)::date <= $${i}::date`, to);
-  if (status) add((i) => `v.status = $${i}`, status);
-  if (approvedBy) add((i) => `v.approved_by = $${i}`, approvedBy);
-  if (search) {
-    params.push(`%${search}%`);
-    const i = params.length;
-    clauses.push(`(vis.full_name ILIKE $${i} OR vis.phone ILIKE $${i} OR v.purpose ILIKE $${i} OR v.from_detail ILIKE $${i})`);
-  }
-
-  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
-}
-
+/**
+ * GET /api/admin/visits — the drill-down behind every dashboard number.
+ *
+ * Filters come from lib/visitFilters.js, the same builder the dashboard's
+ * aggregates use, so a bucket's count and this list always agree. Returns
+ * `people` alongside `total` because the "people" tile counts companions too.
+ * `format=csv` exports exactly what the filters selected.
+ */
 router.get('/visits', async (req, res, next) => {
   try {
     const { where, params } = buildVisitFilters(req.query);
+    const order = visitOrder(req.query.sort);
+
+    if (String(req.query.format).toLowerCase() === 'csv') {
+      const { rows } = await query(`${VISIT_SELECT} ${where} ORDER BY ${order} LIMIT 20000`, params);
+      return sendVisitsCsv(res, rows.map(decorate), `gatepass-visits-${todayLocalISO()}`);
+    }
+
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    const totalRes = await query(
-      `SELECT count(*)::int AS n FROM visits v JOIN visitors vis ON vis.id = v.visitor_id ${where}`,
-      params
-    );
+    // countVisits is the same function the reconciliation check calls, so the
+    // number a drill-down reports is computed exactly one way.
+    const [counts, page] = await Promise.all([
+      countVisits(req.query),
+      query(`${VISIT_SELECT} ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, params),
+    ]);
 
-    const { rows } = await query(
-      `${VISIT_SELECT} ${where} ORDER BY v.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
-      params
-    );
+    res.json({
+      visits: page.rows.map(decorate),
+      total: counts.total,
+      people: counts.people,
+      limit,
+      offset,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    res.json({ visits: rows.map(decorate), total: totalRes.rows[0].n, limit, offset });
+/* ---------------------------------------------------- dashboard & people */
+
+/** GET /api/admin/insights?preset=30d | from=&to= — the superadmin dashboard. */
+router.get('/insights', async (req, res, next) => {
+  try {
+    res.json(await computeInsights(req.query));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/admin/visitors — people who visited, one row per person. */
+router.get('/visitors', async (req, res, next) => {
+  try {
+    res.json(await listVisitors(req.query));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/admin/visitors/:id — one person's whole history with the gate. */
+router.get('/visitors/:id', async (req, res, next) => {
+  try {
+    const profile = await visitorProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such visitor.' });
+    res.json(profile);
   } catch (err) {
     next(err);
   }
@@ -479,6 +493,34 @@ function csvCell(value) {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
+const todayLocalISO = () => new Date().toLocaleDateString('en-CA', { timeZone: config.timezone });
+
+/** One CSV layout for every export, so a drill-down download matches the daily report. */
+function sendVisitsCsv(res, visits, filename) {
+  const fmt = (d) => (d ? new Date(d).toLocaleString('en-IN', { timeZone: config.timezone }) : '');
+  const header = [
+    'Visit ID', 'Date', 'Time In', 'Visitor', 'Visiting From', 'From (Company/Entity)',
+    'Phone', 'Members', 'Purpose',
+    'Visiting', 'Logged By', 'Status', 'Decided By', 'Decided At',
+    'Rejection Reason', 'Checked In', 'Checked Out',
+  ];
+  const lines = [header.map(csvCell).join(',')];
+  for (const v of visits) {
+    lines.push([
+      v.id,
+      new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: config.timezone }),
+      new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: config.timezone }),
+      v.full_name, v.from_type_label, v.from_detail, v.phone, v.companion_count, v.purpose,
+      v.host_display, v.logged_by_name, v.status, v.approved_by_name, fmt(v.decision_at),
+      v.rejection_reason, fmt(v.checked_in_at), fmt(v.checked_out_at),
+    ].map(csvCell).join(','));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+  // BOM so Excel opens Indian names and Tamil text in UTF-8 rather than mojibake.
+  return res.send('\ufeff' + lines.join('\r\n'));
+}
+
 router.get('/report/daily', async (req, res, next) => {
   try {
     const date = isoDate(req.query.date, 'Date') || null;
@@ -494,40 +536,8 @@ router.get('/report/daily', async (req, res, next) => {
     const visits = rows.map(decorate);
 
     if (String(req.query.format).toLowerCase() === 'csv') {
-      const header = [
-        'Visit ID', 'Date', 'Time In', 'Visitor', 'Visiting From', 'From (Company/Entity)',
-        'Phone', 'Members', 'Purpose',
-        'Visiting', 'Logged By', 'Status', 'Decided By', 'Decided At',
-        'Rejection Reason', 'Checked In', 'Checked Out',
-      ];
-      const lines = [header.map(csvCell).join(',')];
-      for (const v of visits) {
-        lines.push([
-          v.id,
-          new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: config.timezone }),
-          new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: config.timezone }),
-          v.full_name,
-          v.from_type_label,
-          v.from_detail,
-          v.phone,
-          v.companion_count,
-          v.purpose,
-          v.host_display,
-          v.logged_by_name,
-          v.status,
-          v.approved_by_name,
-          v.decision_at ? new Date(v.decision_at).toLocaleString('en-IN', { timeZone: config.timezone }) : '',
-          v.rejection_reason,
-          v.checked_in_at ? new Date(v.checked_in_at).toLocaleString('en-IN', { timeZone: config.timezone }) : '',
-          v.checked_out_at ? new Date(v.checked_out_at).toLocaleString('en-IN', { timeZone: config.timezone }) : '',
-        ].map(csvCell).join(','));
-      }
-
-      const label = date || new Date().toLocaleDateString('en-CA', { timeZone: config.timezone });
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="gatepass-${label}.csv"`);
-      // BOM so Excel opens Indian names and Tamil text in UTF-8 rather than mojibake.
-      return res.send('﻿' + lines.join('\r\n'));
+      const label = date || todayLocalISO();
+      return sendVisitsCsv(res, visits, `gatepass-${label}`);
     }
 
     const summary = visits.reduce(

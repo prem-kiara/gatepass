@@ -74,6 +74,17 @@ export function PhotoThumb({ filename, alt, size = 'h-16 w-16', onOpen }) {
   );
 }
 
+/** A non-interactive photo, for use inside a link (a button there is invalid
+ *  HTML and swallows the link's click). Use PhotoThumb when it should open. */
+export function PhotoImage({ filename, alt, size = 'h-16 w-16' }) {
+  if (!filename) return <div className={`${size} shrink-0 rounded-xl bg-slate-200`} aria-hidden="true" />;
+  return (
+    <span className={`${size} block shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100`}>
+      <img src={photoUrl(filename)} alt={alt} className="h-full w-full object-cover" loading="lazy" />
+    </span>
+  );
+}
+
 export function Lightbox({ photo, onClose }) {
   useEffect(() => {
     if (!photo) return undefined;

@@ -35,6 +35,7 @@ gatepass/
 │   ├── seed.js           idempotent superadmin seed
 │   ├── migrations/       001_init.sql ...
 │   ├── middleware/       auth.js, requireRole.js, upload.js, errors.js
+│   ├── lib/              visitFilters.js (the one filter vocabulary), insights.js (dashboard), …
 │   └── routes/           auth.js, visits.js, approvals.js, admin.js, photos.js
 ├── web/src/
 │   ├── pages/            Login, Gate, Approvals, Console/*
@@ -89,13 +90,43 @@ Production serves the built SPA from the same Express process — there is no se
 ./test/e2e.sh
 ```
 
-63 end-to-end cases over the real HTTP API. **It drops and recreates the database named by
+223 end-to-end cases over the real HTTP API, including a walk of every superadmin dashboard number (see below). **It drops and recreates the database named by
 `GATEPASS_TEST_DB` (default `gatepass_dev`) — never point that at production.** It starts its own
 server on port 3040, so stop any local instance first.
 
 The case that matters most is the approval race: two admins `POST /approve` on the same visit
 concurrently, and the suite asserts one 200, one 409, exactly one `approved_by` stamped, and
 exactly one `APPROVED` row in `visit_events`. If you touch the decision path, run this.
+
+## Superadmin dashboard (who has visited)
+
+Superadmins land on `/console`, a dashboard of who visited, when, from where, to see whom, who let
+them in and how long they waited — and **every number, bar, square and row opens the visits behind
+it**. Approvals, People, Users and the sign-in log are tabs beside it (routed: `/console/visits`,
+`/console/people/:id`, `/console/security`, …).
+
+**The contract:** any `{ value, drill }` pair returned by `lib/insights.js` promises that requesting
+`drill` returns exactly `value`. It holds because every aggregate groups by the same expressions
+(`EXPR` in `lib/visitFilters.js`) that the drill-down list filters on, and the server builds the drill
+params from the very group key that produced the count — the client never constructs a filter, it
+only turns `drill` into a URL (`web/src/lib/drill.js`).
+
+- **Adding a breakdown?** Add its dimension to `lib/visitFilters.js`, group by the exported
+  expression, and return `{ value, drill }`. Never write a second "equivalent" predicate elsewhere.
+- **Verify it:** `test/reconcile.js` walks every payload, opens every drill, and checks the parts sum
+  to the whole. It runs over HTTP in `test/e2e.sh`, and **read-only against production** on the VM:
+  `cd ~/gatepass && node test/reconcile.js --direct` (no login needed; it only SELECTs).
+- `test/seed-demo.js` loads ~120 days of realistic traffic for local work and the suite. It
+  **refuses any database whose name doesn't end in `_dev` or `_test`**.
+- Dates and hours are gate-local. Date ranges are half-open timestamp intervals, so they use the
+  `created_at` index rather than casting every row.
+- A person is recognised across visits **by phone number**; a visitor logged without a phone is a new
+  person each time. The "Different visitors" tile says so.
+- "Inside now" means checked in *today*. Visits the gate never finished (still inside from earlier
+  days; approved but never checked in) are shown separately under "Records the gate didn't finish",
+  so they neither inflate the live numbers nor disappear.
+- Organisation and free-text host names group case- and space-insensitively ("AXIS BANK" =
+  "Axis Bank"); the label shown prefers a properly capitalised spelling, then the most frequent.
 
 ## Real-time updates (Server-Sent Events)
 

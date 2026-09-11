@@ -701,6 +701,55 @@ code=$(curl -s -o "$D/last.json" -w '%{http_code}' -b "$D/su.txt" -X PATCH "$API
   -H 'Content-Type: application/json' -d '{"is_active":false}')
 check "last superadmin cannot be deactivated" "$code" "400"
 
+echo "=== 18. Superadmin dashboard: every number opens exactly what it counts ==="
+# Only superadmins may see who has visited.
+login admin1 adminpass123 "$D/a1.txt" > /dev/null
+for path in insights visitors "visitors/00000000-0000-0000-0000-000000000000"; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/$path")
+  check "admin refused /admin/$path" "$code" "403"
+done
+code=$(curl -s -o /dev/null -w '%{http_code}' "$API/admin/insights")
+check "anonymous refused the dashboard" "$code" "401"
+
+# Bad input is a clean 400, never a 500.
+for q in "insights?preset=bogus" "insights?from=2026-09-10&to=2026-01-01" "visits?hour=25" "visits?dow=0" \
+         "visits?from_type=ALIEN" "visits?sort=sideways" "visitors?min_visits=0"; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" "$API/admin/$q")
+  check "rejects $q" "$code" "400"
+done
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" "$API/admin/visitors/00000000-0000-0000-0000-000000000000")
+check "unknown visitor is a 404" "$code" "404"
+
+# Realistic traffic, so buckets hold many visits and a reconciliation bug
+# cannot hide behind every count being "1". Refuses any non-_dev/_test DB.
+( cd $ROOT && node test/seed-demo.js ) > "$D/seed.log" 2>&1 \
+  && ok "demo traffic loaded ($(grep -o '[0-9]* visits' "$D/seed.log" | head -1))" \
+  || bad "demo traffic" "$(tail -3 "$D/seed.log")"
+
+# The contract: walk every dashboard payload and open every drill-down.
+( cd $ROOT && node test/reconcile.js --api "$API" --user superadmin --pass localtest123 ) > "$D/reconcile.log" 2>&1
+grep -E "  (PASS|FAIL)  " "$D/reconcile.log" | grep FAIL
+RP=$(sed -n 's/.*RECONCILE checked=\([0-9]*\) passed=\([0-9]*\) failed=\([0-9]*\).*/\2/p' "$D/reconcile.log")
+RF=$(sed -n 's/.*RECONCILE checked=\([0-9]*\) passed=\([0-9]*\) failed=\([0-9]*\).*/\3/p' "$D/reconcile.log")
+RC=$(sed -n 's/.*RECONCILE checked=\([0-9]*\).*/\1/p' "$D/reconcile.log")
+[ -n "$RP" ] && [ "${RF:-1}" = "0" ] && [ "${RC:-0}" -gt 300 ] \
+  && ok "all $RC dashboard numbers match their drill-downs ($RP reconciliation checks)" \
+  || bad "reconciliation" "checked=${RC:-?} passed=${RP:-?} failed=${RF:-?} — see $D/reconcile.log"
+
+# A drill-down's CSV holds exactly the rows its count promised.
+N=$(curl -s -b "$D/su.txt" "$API/admin/visits?from_type=GOVERNMENT&limit=1" | sed -n 's/.*"total":\([0-9]*\).*/\1/p')
+LINES=$(curl -s -b "$D/su.txt" "$API/admin/visits?from_type=GOVERNMENT&format=csv" | wc -l | tr -d ' ')
+# Rows are joined by CRLF with no trailing newline, so the line-break count is
+# exactly the number of data rows under the header.
+check "filtered CSV export has one row per counted visit" "$LINES" "$N"
+
+# Inconsistent spellings are one organisation, labelled with the tidy spelling.
+curl -s -b "$D/su.txt" "$API/admin/insights?preset=all" > "$D/ins.json"
+grep -q '"label":"Kiara Global Services"' "$D/ins.json" && ok "variant spellings grouped under the properly capitalised name" \
+  || bad "org label" "$(grep -o '"label":"[^"]*iara[^"]*"' "$D/ins.json" | head -3)"
+COUNT_KIARA=$(grep -o '"label":"[Kk][Ii][Aa][Rr][Aa] [^"]*"' "$D/ins.json" | sort -u | wc -l | tr -d ' ')
+check "Kiara appears once, not once per spelling" "$COUNT_KIARA" "1"
+
 echo
 echo "================================"
 echo "  PASSED: $PASS   FAILED: $FAIL"

@@ -59,3 +59,23 @@
     @apply inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold;
   }
 }
+
+/* ------------------------------------------------------------------ charts
+ * Validated with the data-viz palette checker against the white card surface
+ * (single series #2a78d6: all checks pass; heatmap ramp, ordinal: all pass).
+ * The app is light-only, so there is no dark set. Charts reference roles, not
+ * hex, so a future theme swaps values here and nowhere else. */
+.viz {
+  --viz-series-1: #2a78d6;
+  --viz-series-1-hover: #1c5cab;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-ink-2: #52514e;
+  --viz-empty: #f1f0ec;
+  --viz-seq-1: #86b6ef;
+  --viz-seq-2: #5598e7;
+  --viz-seq-3: #2a78d6;
+  --viz-seq-4: #1c5cab;
+  --viz-seq-5: #104281;
+}

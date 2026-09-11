@@ -46,6 +46,49 @@ Newest entries at the top. Append one entry per change.
   via `GET /api/admin/visits/:id/events`.
 - `GET /api/admin/report/daily?date=&format=csv` — counts plus CSV export.
 
+## 2026-09-11 — Superadmin dashboard: who has visited, with drill-down on everything
+
+Superadmins now land on a dashboard instead of the approval queue. Chosen with
+the user as "dashboard first": the queue, Users and Security stay as tabs,
+because Karthick (superadmin) makes 88 of the last 90 approval decisions and a
+dashboard-only superadmin would have stalled the gate. Gokul promoted to
+superadmin at deploy.
+
+**What it shows** (all scoped by one date-range row — today, 7/30/90 days, this
+month, all time, custom — with deltas against the equal-length period before):
+- Right now: inside today, waiting for approval, waiting 10+ minutes.
+- Visits (hero), people incl. members, different visitors, came back 2+ times,
+  let in, turned away, typical wait for a decision.
+- Visits per day (weekly past 92 days), arrivals by weekday × hour, where
+  visitors come from (type + top companies/government bodies), whom they came
+  to see, who decided (with typical wait each), who logged them at the gate,
+  regular visitors, latest visitors with photos.
+- Records the gate didn't finish (still "inside" from earlier days; approved
+  but never checked in) — separated so they don't inflate the live numbers.
+
+**Drill-down on every number, bar, heatmap square and row.** One filter
+vocabulary (`lib/visitFilters.js`) serves both the aggregates and the lists;
+the server returns each count as `{ value, drill }` built from the group key
+that produced it, and the client only turns `drill` into a URL. Drill-downs are
+real routes with removable filter chips, a people/visits count, and a CSV export
+of exactly that selection. New People directory and per-person pages (whole
+history, whom they met, where from — each a drill-down again). Console tabs are
+now routes, which also fixes security alerts that linked to `/console/security`
+but always opened the default tab.
+
+**Proven, not asserted:** `test/reconcile.js` walks every payload and opens
+every drill (≈865 numbers across six ranges on the demo data), plus checks that
+per-day, weekday×hour, visiting-from, outcome and gate-staff breakdowns each sum
+to the headline. Runs in the e2e suite and read-only against production
+(`--direct`). It caught two real bugs before anyone saw them: a blank "company"
+bucket on the person page that would have opened every company visit instead of
+just the blank ones, and org labels showing a lowercase spelling.
+
+Charts follow the data-viz method: one validated series colour and a validated
+single-hue ramp (both pass the palette checker against the white card surface),
+one axis, thin marks, a table view for every chart, tooltips on hover and focus,
+and every mark a real link. Light-only, like the rest of the app.
+
 ## 2026-08-13 — One-time password reset, for everyone
 
 Password recovery was both the clunkiest flow and the last place an admin could

@@ -87,6 +87,10 @@ export const admin = {
   authEvents: (id) => api.get(`/api/admin/users/${id}/auth-events`),
   authEventsAll: (params) => api.get(`/api/admin/auth-events?${new URLSearchParams(params)}`),
   visits: (params) => api.get(`/api/admin/visits?${new URLSearchParams(params)}`),
+  visitsCsvUrl: (params) => `/api/admin/visits?${new URLSearchParams({ ...params, format: 'csv' })}`,
+  insights: (params) => api.get(`/api/admin/insights?${new URLSearchParams(params)}`),
+  visitors: (params) => api.get(`/api/admin/visitors?${new URLSearchParams(params)}`),
+  visitor: (id) => api.get(`/api/admin/visitors/${id}`),
   events: (id) => api.get(`/api/admin/visits/${id}/events`),
   csvUrl: (date) => `/api/admin/report/daily?format=csv${date ? `&date=${date}` : ''}`,
 };
