@@ -459,6 +459,33 @@ same visit produce one 200 and one 409, with exactly one `approved_by` stamped a
 
 ---
 
+## In-app camera (fixes "not enough storage" at the gate)
+
+Guards intermittently hit a system message about storage when taking a visitor photo, on phones with
+gigabytes free. The failure never reached the server — no upload errors in the log, and the photos
+that did arrive were correctly compressed (111 files, 104 KB average, 180 KB largest). That places it
+before the browser: Chrome hands off to the phone's camera app, which writes a full-resolution temp
+file (4–12 MB) before returning anything, and Android refuses that write in its low-storage state.
+That state is a *percentage* of the internal partition, so a 64 GB phone starts refusing with ~6 GB
+free — which is why checking the phone shows "plenty of space".
+
+`CameraSheet.jsx` now captures inside the page: `getUserMedia` at 1280x960 → canvas → the same
+1024px/80% JPEG encoder the file path uses (`lib/image.js` now shares `toJpeg` between both). No file
+is written to phone storage at any point, so the failing path is gone rather than made less likely.
+
+The camera app stays as the fallback, taken automatically when the in-app camera cannot open (no
+camera, already in use, insecure context) and offered as a visible "Use the phone camera app instead"
+escape hatch on every state of the sheet, including permission-denied. A guard is never left without
+a way to log the visitor.
+
+Verified locally against a synthetic camera stream driving the real UI: sheet opens without touching
+the file input, 1280x960 stream produces a 1024x768 JPEG, a double-tapped shutter yields one photo,
+camera tracks end after capture, and the full flow creates a visit with a valid stored JPEG. Both
+fallback paths and the permission-denied message were exercised. Layout measured at 375px and 320px:
+no horizontal overflow, 80px shutter, 48px minimum touch target, controls clear of the home indicator.
+
+---
+
 ## v2 candidates (out of scope for v1)
 
 - OTP verification of the visitor's phone number.

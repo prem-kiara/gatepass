@@ -1,12 +1,25 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import L from '../labels';
 import { compressImage } from '../lib/image';
+import CameraSheet from './CameraSheet';
 import { Spinner } from './ui';
 
+/** The in-app camera needs getUserMedia and a secure context (HTTPS/localhost). */
+function supportsInAppCamera() {
+  return Boolean(
+    window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+  );
+}
+
 /**
- * Camera-first capture. `capture="environment"` opens the phone camera directly
- * on Android and iOS with no native app or permissions dance; on a desktop
- * browser it degrades to a file picker, which is what we want for testing.
+ * Camera-first capture, two paths:
+ *
+ * 1. **In-app camera** (preferred) — captures the frame straight from the live
+ *    stream into memory. Nothing is written to phone storage, which is what
+ *    made the phone camera app fail with "not enough storage" on gate phones.
+ * 2. **Phone camera app** (`capture="environment"`) — the fallback when the
+ *    camera can't be opened in-page, and the file picker on desktop, which is
+ *    what we want for testing.
  *
  * Calls `onChange({ blob, previewUrl })`, or `onChange(null)` when cleared.
  */
@@ -14,8 +27,28 @@ export default function PhotoCapture({ value, onChange, label = L.gate.takePhoto
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
-  const pick = () => inputRef.current && inputRef.current.click();
+  const openCameraApp = useCallback(() => {
+    setSheetOpen(false);
+    if (inputRef.current) inputRef.current.click();
+  }, []);
+
+  const pick = () => {
+    setError(null);
+    if (supportsInAppCamera()) setSheetOpen(true);
+    else openCameraApp();
+  };
+
+  const accept = (result) => {
+    if (value && value.previewUrl) URL.revokeObjectURL(value.previewUrl);
+    onChange(result);
+  };
+
+  const onCaptured = (result) => {
+    setSheetOpen(false);
+    accept(result);
+  };
 
   const onFile = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -26,9 +59,7 @@ export default function PhotoCapture({ value, onChange, label = L.gate.takePhoto
     setBusy(true);
     setError(null);
     try {
-      const result = await compressImage(file);
-      if (value && value.previewUrl) URL.revokeObjectURL(value.previewUrl);
-      onChange(result);
+      accept(await compressImage(file));
     } catch (err) {
       setError(err.message || L.somethingWrong);
     } finally {
@@ -49,6 +80,14 @@ export default function PhotoCapture({ value, onChange, label = L.gate.takePhoto
         onChange={onFile}
         className="hidden"
       />
+
+      {sheetOpen && (
+        <CameraSheet
+          onCapture={onCaptured}
+          onClose={() => setSheetOpen(false)}
+          onFallback={openCameraApp}
+        />
+      )}
 
       {value ? (
         <div className={isLarge ? 'space-y-3' : 'space-y-2'}>

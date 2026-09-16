@@ -167,6 +167,15 @@ export const L = {
     photoRequired: "A photo of the visitor is required.",
     photoHint: 'Take a clear photo of the visitor’s face.',
 
+    // In-app camera. Guards see these on the capture sheet.
+    cameraStarting: 'Starting camera…',
+    cameraShutter: 'Take photo',
+    cameraSwitch: 'Flip camera',
+    cameraClose: 'Cancel',
+    cameraUseApp: 'Use the phone camera app instead',
+    cameraBlocked: 'Camera permission is off for this app. Allow it in your browser settings, or use the phone camera app.',
+    cameraFailed: 'Could not start the camera.',
+
     fullName: 'Visitor name',
     fullNamePlaceholder: 'Full name',
     phone: 'Phone number',

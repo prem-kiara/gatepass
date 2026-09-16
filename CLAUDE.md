@@ -23,6 +23,13 @@ and a full audit trail for the superadmin.
 
 Tripwires (`lib/notify.js` → `securityAlert`, and the sweeper) notify superadmins on PIN locks, resets, and bursts of failed sign-ins. Two burst checks, because they see different things: `alertFailedBursts` groups by **user** (one account under pressure), `alertSuspiciousSources` groups by **IP** (probing usernames that do not exist, or one password sprayed across accounts — neither of which the per-user check can see, since probing rows have no `user_id` and spraying leaves one failure per account). The per-source check is deliberately tuned not to fire on the shared gate phone: a guard fumbling their own PIN resolves to a real user, and it takes three *different* accounts from one address to read as spraying. The shared gate phone locks itself after 10 idle minutes and requires the guard's own PIN to resume.
 - **Photos:** captured in-browser, compressed client-side (max edge 1024px, JPEG ~80%), uploaded via multer (memory), normalized and EXIF-stripped by sharp, written to `PHOTO_DIR` with UUID filenames. Served **only** through the authenticated route `GET /api/photos/:filename` — never as public static files.
+  Capture has two paths, and the order matters: the **in-app camera** (`CameraSheet.jsx`, `getUserMedia`
+  → canvas → JPEG) is tried first because it writes nothing to phone storage, and the phone's **camera
+  app** (`<input capture="environment">`) is the fallback. Handing off to the camera app makes Android
+  write a multi-megabyte temp file first, which fails with a "not enough storage" toast near Android's
+  low-storage threshold — a *percentage* of the partition, so it fires while gigabytes still look free.
+  Every camera failure (no camera, permission denied, in use, insecure context) falls back to the camera
+  app rather than dead-ending; a guard at the gate must always be able to take the photo.
 
 ## Layout
 
