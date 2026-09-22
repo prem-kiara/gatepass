@@ -48,6 +48,9 @@ module.exports = {
   // A pending request older than this shows up in the shared "Unattended" list
   // and triggers an escalation notification to every admin.
   unattendedAfterSeconds: 10 * 60,
+  // Approval marks a visitor inside; anyone still inside this long after they
+  // went in is marked as left by the sweeper.
+  autoCheckoutHours: 24,
   // Web Push. Generate a keypair with `npm run vapid`. Without these the app
   // runs normally and notifications still accumulate in the in-app history —
   // only the phone's notification shade goes quiet.

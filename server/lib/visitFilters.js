@@ -21,7 +21,7 @@ const STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'INSIDE', 'CHECKED_OUT'];
 const FROM_TYPES = ['COMPANY', 'PRIVATE', 'GOVERNMENT', 'NONE'];
 const OUTCOMES = ['approved', 'rejected', 'pending', 'decided'];
 const LIVE = ['inside_now', 'waiting', 'unattended'];
-const STALE = ['not_checked_out', 'never_checked_in'];
+const STALE = ['auto_checked_out'];
 const SORTS = ['recent', 'oldest', 'wait_desc'];
 
 // Group-by expressions. Dashboard breakdowns GROUP BY exactly these, and the
@@ -105,7 +105,6 @@ function buildVisitFilters(q, { startIndex = 0 } = {}) {
     return tzRef;
   };
   const expr = (name) => EXPR[name].replace(/\$TZ/g, tz());
-  const today = () => `(now() AT TIME ZONE ${tz()}::text)::date`;
 
   // Date range as a half-open timestamp interval rather than a cast of every
   // row's timestamp — exactly equivalent, but it can use the created_at index.
@@ -133,21 +132,19 @@ function buildVisitFilters(q, { startIndex = 0 } = {}) {
 
   // "Right now" views ignore the date range's meaning of history — they are
   // about the gate at this moment.
+  // Nobody stays INSIDE past the auto check-out, so INSIDE is simply "inside".
   if (f.live === 'inside_now') {
-    clauses.push(`v.status = 'INSIDE' AND (v.checked_in_at AT TIME ZONE ${tz()}::text)::date = ${today()}`);
+    clauses.push("v.status = 'INSIDE'");
   } else if (f.live === 'waiting') {
     clauses.push("v.status = 'PENDING'");
   } else if (f.live === 'unattended') {
     clauses.push(`v.status = 'PENDING' AND EXTRACT(EPOCH FROM (now() - v.created_at)) >= ${bind(config.unattendedAfterSeconds)}`);
   }
 
-  // Records the gate never finished: still "inside" from an earlier day, or
-  // approved and never checked in. Surfaced so they can be chased up, and so
-  // the "inside now" number is not inflated by them.
-  if (f.stale === 'not_checked_out') {
-    clauses.push(`v.status = 'INSIDE' AND (v.checked_in_at AT TIME ZONE ${tz()}::text)::date < ${today()}`);
-  } else if (f.stale === 'never_checked_in') {
-    clauses.push(`v.status = 'APPROVED' AND ${expr('localDate')} < ${today()}`);
+  // Visits nobody saw end: the sweeper marked them as left after 24 hours
+  // inside because no guard checked them out.
+  if (f.stale === 'auto_checked_out') {
+    clauses.push("v.status = 'CHECKED_OUT' AND v.checkout_auto");
   }
 
   if (f.q) {

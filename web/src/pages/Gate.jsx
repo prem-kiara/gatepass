@@ -15,6 +15,8 @@ const POLL_MS = 10000;
 
 function VisitCard({ visit, onAction, busyId, onOpenPhoto }) {
   const busy = busyId === visit.id;
+  // Approval marks the visitor inside, so the only action left is check-out.
+  // (APPROVED can only be a visit decided before that rule; still let it in.)
   const canCheckIn = visit.status === 'APPROVED';
   const canCheckOut = visit.status === 'INSIDE';
 
@@ -58,8 +60,13 @@ function VisitCard({ visit, onAction, busyId, onOpenPhoto }) {
               ? L.gate.rejectedBy(visit.approved_by_name)
               : L.gate.approvedBy(visit.approved_by_name)}
             {visit.rejection_reason && ` — ${visit.rejection_reason}`}
+            {visit.status === 'INSIDE' && visit.checked_in_at && ` · ${L.gate.insideSince(formatTime(visit.checked_in_at))}`}
           </p>
         )}
+
+      {visit.status === 'CHECKED_OUT' && visit.checkout_auto && (
+        <p className="border-t border-slate-100 px-3 py-2 text-sm text-slate-600">{L.gate.autoCheckedOut}</p>
+      )}
 
       {visit.status === 'PENDING' && (
         <p className="border-t border-amber-100 bg-amber-50 px-3 py-2.5 text-center font-semibold text-amber-800">

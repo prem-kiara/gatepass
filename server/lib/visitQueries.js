@@ -25,6 +25,7 @@ const VISIT_SELECT = `
     v.decision_at,
     v.checked_in_at,
     v.checked_out_at,
+    v.checkout_auto,
     vis.id   AS visitor_id,
     vis.full_name,
     vis.phone,

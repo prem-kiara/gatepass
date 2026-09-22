@@ -4,9 +4,10 @@
  * Periodic background work, run in-process (there is a single PM2 instance).
  *
  *  1. Escalate requests nobody has acted on for 10 minutes.
- *  2. Retry pushes that never reached any device.
+ *  2. Mark visitors still inside after 24 hours as left.
+ *  3. Retry pushes that never reached any device.
  *
- * (2) is what makes "nothing should be lost" true in practice: the notification
+ * (3) is what makes "nothing should be lost" true in practice: the notification
  * row is already safe in the database, but a guard whose phone was in a tunnel
  * when the request came in should still get the buzz once it reconnects, not
  * only when they next open the app.
@@ -45,6 +46,41 @@ async function escalateUnattended() {
       console.error(`[sweeper] escalation failed for ${visit.id}: ${err.message}`);
     }
   }
+}
+
+/**
+ * Marks visitors as left once they have been inside for `autoCheckoutHours`.
+ *
+ * Nobody saw them leave, so the record says so: `checkout_auto` is set, the
+ * audit event has no actor, and the check-out time is the moment the rule
+ * deemed them gone (check-in + 24h) rather than whenever this sweep ran — so a
+ * late sweep or a backlog does not stretch anyone's visit. The host is not
+ * notified; "has left the building" would be a guess presented as news.
+ *
+ * One statement, so the status change and its audit row commit together.
+ */
+async function autoCheckOut() {
+  const { rows } = await query(
+    `WITH gone AS (
+       UPDATE visits
+          SET status = 'CHECKED_OUT',
+              checked_out_at = checked_in_at + make_interval(hours => $1),
+              checkout_auto = true
+        WHERE status = 'INSIDE'
+          AND checked_in_at <= now() - make_interval(hours => $1)
+       RETURNING id
+     )
+     INSERT INTO visit_events (visit_id, actor_id, action, detail)
+     SELECT id, NULL, 'CHECKED_OUT', jsonb_build_object('auto', true, 'reason', 'inside_over_hours', 'hours', $1::int)
+       FROM gone
+     RETURNING visit_id`,
+    [config.autoCheckoutHours]
+  );
+  if (rows.length > 0) {
+    events.gateChanged({ action: 'auto_checked_out', count: rows.length });
+    console.log(`[sweeper] marked ${rows.length} visit(s) as left after ${config.autoCheckoutHours}h inside`);
+  }
+  return rows.length;
 }
 
 /**
@@ -201,6 +237,7 @@ let timer = null;
 async function tick() {
   try {
     await escalateUnattended();
+    await autoCheckOut();
     await alertFailedBursts();
     await alertSuspiciousSources();
     await retryUndelivered();
@@ -227,6 +264,7 @@ module.exports = {
   stop,
   tick,
   escalateUnattended,
+  autoCheckOut,
   retryUndelivered,
   alertFailedBursts,
   alertSuspiciousSources,

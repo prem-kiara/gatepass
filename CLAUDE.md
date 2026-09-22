@@ -74,9 +74,23 @@ gatepass/
 ## Visit state machine
 
 ```
-PENDING ──approve──▶ APPROVED ──check-in──▶ INSIDE ──check-out──▶ CHECKED_OUT
+PENDING ──approve──▶ INSIDE ──guard checks out──────────▶ CHECKED_OUT
+   │                   └──24h inside (sweeper)──────────▶ CHECKED_OUT (checkout_auto)
    └─────reject─────▶ REJECTED
 ```
+
+- **Approval means the visitor is inside.** There is no check-in step: the approve endpoint sets
+  `INSIDE` and `checked_in_at = decision_at`, and writes two audit rows — `APPROVED` and an
+  automatic `CHECKED_IN` (`detail.auto`, `via: approval`), both attributed to the approver. The
+  host hears "has checked in" unless they are the one who approved. `APPROVED` remains a valid
+  status only for history; `POST /check-in` still exists but nothing reaches it any more.
+- **24 hours inside → marked as left.** `sweeper.autoCheckOut` (every 60s) moves `INSIDE` visits
+  with `checked_in_at` older than `config.autoCheckoutHours` to `CHECKED_OUT`, sets
+  `checkout_auto`, stamps `checked_out_at = checked_in_at + 24h` (when the rule deemed them gone,
+  not when the sweep ran), and writes a `CHECKED_OUT` event with **no actor**. No "has left"
+  notification — it's a guess, not news. The dashboard's "Visits nobody checked out" tile counts
+  these (`stale=auto_checked_out`).
+- Because nobody can stay `INSIDE` past 24h, "Inside now" is simply `status = 'INSIDE'`.
 
 ## Run locally
 
@@ -97,7 +111,7 @@ Production serves the built SPA from the same Express process — there is no se
 ./test/e2e.sh
 ```
 
-223 end-to-end cases over the real HTTP API, including a walk of every superadmin dashboard number (see below). **It drops and recreates the database named by
+230 end-to-end cases over the real HTTP API, including a walk of every superadmin dashboard number (see below). **It drops and recreates the database named by
 `GATEPASS_TEST_DB` (default `gatepass_dev`) — never point that at production.** It starts its own
 server on port 3040, so stop any local instance first.
 
@@ -129,9 +143,8 @@ only turns `drill` into a URL (`web/src/lib/drill.js`).
   `created_at` index rather than casting every row.
 - A person is recognised across visits **by phone number**; a visitor logged without a phone is a new
   person each time. The "Different visitors" tile says so.
-- "Inside now" means checked in *today*. Visits the gate never finished (still inside from earlier
-  days; approved but never checked in) are shown separately under "Records the gate didn't finish",
-  so they neither inflate the live numbers nor disappear.
+- "Inside now" is every visit with status `INSIDE` (the 24-hour rule bounds it). Visits the gate
+  never checked out are shown under "Visits nobody checked out", for the selected period.
 - Organisation and free-text host names group case- and space-insensitively ("AXIS BANK" =
   "Axis Bank"); the label shown prefers a properly capitalised spelling, then the most frequent.
 

@@ -535,15 +535,42 @@ check "exactly one decision stamped" "$DECIDER" "1"
 NEVT=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM visit_events WHERE visit_id='$VISIT_ID' AND action='APPROVED'")
 check "exactly one APPROVED audit event" "$NEVT" "1"
 
-echo "=== 10. Check-in / check-out ==="
-code=$(curl -s -o "$D/ci.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$VISIT_ID/check-in")
-check "check-in after approval" "$code" "200"
-grep -q '"status":"INSIDE"' "$D/ci.json" && ok "status INSIDE" || bad "INSIDE" "$(head -c 200 "$D/ci.json")"
+echo "=== 10. Approval means inside; check-out ==="
+ST=$(psql -qtAX -d "$DB" -c "SELECT status || '|' || (checked_in_at IS NOT NULL) || '|' || (checked_in_at = decision_at) FROM visits WHERE id='$VISIT_ID'")
+check "approved visit is INSIDE, checked in at the decision" "$ST" "INSIDE|true|true"
+NCI=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM visit_events WHERE visit_id='$VISIT_ID' AND action='CHECKED_IN' AND (detail->>'auto')::boolean AND detail->>'via'='approval' AND actor_id IS NOT NULL")
+check "one automatic CHECKED_IN event, attributed to the approver" "$NCI" "1"
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$VISIT_ID/check-in")
-check "double check-in rejected" "$code" "409"
+check "manual check-in after approval is a no-op 409" "$code" "409"
 code=$(curl -s -o "$D/co.json" -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$VISIT_ID/check-out")
 check "check-out" "$code" "200"
 grep -q '"status":"CHECKED_OUT"' "$D/co.json" && ok "status CHECKED_OUT" || bad "CHECKED_OUT" ""
+grep -q '"checkout_auto":false' "$D/co.json" && ok "guard check-out is not flagged automatic" || bad "checkout_auto" "$(head -c 300 "$D/co.json")"
+
+echo "=== 10b. Inside for 24h -> marked as left ==="
+mkauto(){ curl -s -o "$D/$1.json" -b "$D/g.txt" -X POST "$API/visits" \
+  -F "photo=@$D/p.jpg" -F "full_name=$2" -F "from_type=PRIVATE" -F "host_name=Accounts Desk"; firstid "$D/$1.json"; }
+VA=$(mkauto va "Overnight Stayer"); needid "24h visit id" "$VA"
+VB=$(mkauto vb "Still Within Day"); needid "23h visit id" "$VB"
+curl -s -o /dev/null -b "$D/a1.txt" -X POST "$API/visits/$VA/approve"
+curl -s -o /dev/null -b "$D/a1.txt" -X POST "$API/visits/$VB/approve"
+psql -qtAX -d "$DB" -c "UPDATE visits SET checked_in_at = now() - interval '25 hours' WHERE id='$VA'" > /dev/null
+psql -qtAX -d "$DB" -c "UPDATE visits SET checked_in_at = now() - interval '23 hours' WHERE id='$VB'" > /dev/null
+sweep_auto(){ ( cd $ROOT/server && node -e "require('./lib/sweeper').autoCheckOut().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})" ) > /dev/null 2>&1; }
+sweep_auto; sweep_auto   # twice: the second run must change nothing
+RA=$(psql -qtAX -d "$DB" -c "SELECT status || '|' || checkout_auto || '|' || (checked_out_at = checked_in_at + interval '24 hours') FROM visits WHERE id='$VA'")
+check "25h inside -> CHECKED_OUT, automatic, left at check-in + 24h" "$RA" "CHECKED_OUT|true|true"
+RB=$(psql -qtAX -d "$DB" -c "SELECT status || '|' || checkout_auto FROM visits WHERE id='$VB'")
+check "23h inside -> still INSIDE" "$RB" "INSIDE|false"
+NEA=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM visit_events WHERE visit_id='$VA' AND action='CHECKED_OUT' AND actor_id IS NULL AND (detail->>'auto')::boolean")
+check "exactly one automatic CHECKED_OUT event, no actor (repeat sweep is a no-op)" "$NEA" "1"
+NNA=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE visit_id='$VA' AND type='VISIT_CHECKED_OUT'")
+check "no 'has left' notification for a guessed departure" "$NNA" "0"
+curl -s -b "$D/su.txt" "$API/admin/visits?stale=auto_checked_out" > "$D/auto.json"
+grep -q "$VA" "$D/auto.json" && ok "auto check-outs are listed for the superadmin" || bad "stale filter" "$(head -c 200 "$D/auto.json")"
+grep -q "$VB" "$D/auto.json" && bad "stale filter" "lists a visit still inside" || ok "visit still inside is not listed as auto check-out"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$VB/check-out")
+check "guard can still check out a visit inside" "$code" "200"
 
 echo "=== 11. Audit trail ==="
 curl -s -b "$D/su.txt" "$API/admin/visits/$VISIT_ID/events" > "$D/ev.json"
@@ -618,7 +645,8 @@ curl -s -b "$D/g.txt" "$API/notifications" > "$D/ng.json"
 grep -q '"Notify Test"' "$D/ng.json" && bad "scoping" "guard sees an admin notification" || ok "notification list is scoped per user"
 
 echo "--- approve, then check the decision reaches the guard ---"
-code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" -X POST "$API/visits/$V3/approve")
+# admin2 approves admin1's visitor, so the host hears about it from the approval.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a2.txt" -X POST "$API/visits/$V3/approve")
 check "approve for notification test" "$code" "200"
 sleep 1
 N_GA=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_APPROVED' AND u.username='guard1'")
@@ -630,10 +658,7 @@ STILL=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications WHERE visit_i
 check "stale broadcasts resolved" "$RESOLVED" "3"
 check "resolved notifications still exist (nothing lost)" "$STILL" "3"
 
-echo "--- check-in notifies the host admin only ---"
-code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" -X POST "$API/visits/$V3/check-in")
-check "check-in for notification test" "$code" "200"
-sleep 1
+echo "--- approval (= check-in) notifies the host admin only ---"
 N_HOST=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_IN' AND u.username='admin1'")
 N_OTHER=$(psql -qtAX -d "$DB" -c "SELECT count(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.visit_id='$V3' AND n.type='VISIT_CHECKED_IN' AND u.username='admin2'")
 check "host admin notified of check-in" "$N_HOST" "1"

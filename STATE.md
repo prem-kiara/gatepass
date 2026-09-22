@@ -486,6 +486,33 @@ no horizontal overflow, 80px shutter, 48px minimum touch target, controls clear 
 
 ---
 
+## Approval means inside; 24 hours inside means left
+
+Asked for: once a visit is approved, treat the visitor as inside with no separate check-in step;
+anyone "in" for more than 24 hours is marked as left.
+
+- `POST /approvals/:id/approve` now sets `INSIDE` with `checked_in_at` at the decision, in the
+  same first-approval-wins `UPDATE ... WHERE status = 'PENDING'` — the race guarantee is unchanged.
+  Audit gets `APPROVED` plus an automatic `CHECKED_IN` from the approver. The guard's notification
+  now says the visitor is marked inside; the host gets "has checked in" from the approval unless
+  they approved it themselves.
+- `sweeper.autoCheckOut` closes `INSIDE` visits after `autoCheckoutHours` (24): `checkout_auto`
+  set, check-out time = check-in + 24h, actorless `CHECKED_OUT` event, no host notification. One
+  SQL statement, so status and audit row commit together; repeat sweeps are no-ops.
+- Migration 012 adds `visits.checkout_auto` and backfills existing `APPROVED` visits to `INSIDE`
+  (checked in at their decision, actorless `CHECKED_IN` event marked `backfill`). On production
+  that was 47 visits; with the 24-hour rule, 97 of 127 visits were then closed as automatic
+  check-outs on the first sweep, leaving 5 inside.
+- Dashboard: "Inside now" = all `INSIDE`; the old "Records the gate didn't finish" pair (still
+  inside from earlier days / approved never checked in) — both impossible now — is replaced by
+  "Visits nobody checked out", range-bound, drilling to `stale=auto_checked_out`.
+- Gate card: no Check In button for new approvals, "Inside since HH:MM"; auto-closed visits say
+  so. Visit detail and audit trail label automatic events.
+- e2e: 230 cases (was 223), incl. 25h vs 23h, idempotent re-sweep, no notification, and the
+  stale filter. Backfill SQL exercised separately against pre-change APPROVED rows.
+
+---
+
 ## v2 candidates (out of scope for v1)
 
 - OTP verification of the visitor's phone number.

@@ -123,7 +123,12 @@ export function AuditTrail({ visitId }) {
             {e.actor_name ? `${e.actor_name} (${L.role[e.actor_role] || e.actor_role})` : '—'} ·{' '}
             {formatDateTime(e.at)}
           </p>
-          {e.detail && e.detail.reason && (
+          {e.detail && e.detail.auto && (
+            <p className="text-sm text-slate-500">
+              {e.action === 'CHECKED_OUT' ? L.gate.autoEventAfterHours : L.gate.autoEventOnApproval}
+            </p>
+          )}
+          {e.detail && e.detail.reason && !e.detail.auto && (
             <p className="text-sm text-slate-600">{L.gate.reason}: {e.detail.reason}</p>
           )}
         </li>
@@ -202,7 +207,10 @@ export function VisitRow({ visit, onOpenPhoto, linkPerson = true }) {
             <p><span className="text-slate-500">{L.gate.purpose}:</span> {visit.purpose || '—'}</p>
             <p><span className="text-slate-500">{L.approvals.loggedBy}:</span> {visit.logged_by_name}</p>
             <p><span className="text-slate-500">{L.gate.checkIn}:</span> {visit.checked_in_at ? formatTime(visit.checked_in_at) : '—'}</p>
-            <p><span className="text-slate-500">{L.gate.checkOut}:</span> {visit.checked_out_at ? formatTime(visit.checked_out_at) : '—'}</p>
+            <p>
+              <span className="text-slate-500">{L.gate.checkOut}:</span> {visit.checked_out_at ? formatTime(visit.checked_out_at) : '—'}
+              {visit.checkout_auto && <span className="text-slate-500"> ({L.gate.autoCheckedOut})</span>}
+            </p>
             {visit.rejection_reason && (
               <p className="sm:col-span-2"><span className="text-slate-500">{L.gate.reason}:</span> {visit.rejection_reason}</p>
             )}

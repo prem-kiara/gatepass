@@ -232,6 +232,11 @@ export const L = {
     waitingApproval: 'Waiting for approval',
     rejectedBy: (name: string) => `Rejected by ${name}`,
     approvedBy: (name: string) => `Approved by ${name}`,
+    // Approval marks the visitor inside; after 24h inside they are marked as left.
+    insideSince: (time: string) => `Inside since ${time}`,
+    autoCheckedOut: 'Marked as left automatically after 24 hours',
+    autoEventOnApproval: 'Automatic — approval lets the visitor in',
+    autoEventAfterHours: 'Automatic — nobody checked them out within 24 hours',
     reason: 'Reason',
     visiting: 'Visiting',
     loggedAt: 'Logged',
@@ -355,12 +360,11 @@ export const L = {
       peopleCount: (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`,
       lastSeen: 'Last seen',
 
-      attentionTitle: 'Records the gate didn’t finish',
+      attentionTitle: 'Visits nobody checked out',
       attentionHint:
-        'Across all dates. These make “inside” and “approved” counts look higher than reality until the gate closes them.',
-      notCheckedOut: 'Still marked inside from earlier days',
-      neverCheckedIn: 'Approved but never checked in',
-      allClear: 'Nothing left unfinished. 👍',
+        'In this period. Approved visitors count as inside; if no guard checks them out within 24 hours they are marked as left automatically.',
+      autoCheckedOut: 'Marked as left automatically',
+      allClear: 'Every visit in this period was checked out by the gate. 👍',
 
       showTable: 'Table',
       showChart: 'Chart',
@@ -378,8 +382,7 @@ export const L = {
       outcome: { approved: 'Let in', rejected: 'Turned away', pending: 'Waiting', decided: 'Decided' } as Record<string, string>,
       live: { inside_now: 'Inside right now', waiting: 'Waiting for approval', unattended: 'Waiting 10+ min' } as Record<string, string>,
       stale: {
-        not_checked_out: 'Still inside from earlier days',
-        never_checked_in: 'Approved, never checked in',
+        auto_checked_out: 'Marked as left automatically',
       } as Record<string, string>,
       decidedBy: (name: string) => `Decided by ${name}`,
       loggedBy: (name: string) => `Logged by ${name}`,
