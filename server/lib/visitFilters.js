@@ -21,7 +21,7 @@ const STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'INSIDE', 'CHECKED_OUT'];
 const FROM_TYPES = ['COMPANY', 'PRIVATE', 'GOVERNMENT', 'NONE'];
 const OUTCOMES = ['approved', 'rejected', 'pending', 'decided'];
 const LIVE = ['inside_now', 'waiting', 'unattended'];
-const STALE = ['auto_checked_out'];
+const STALE = ['never_checked_in', 'auto_checked_out'];
 const SORTS = ['recent', 'oldest', 'wait_desc'];
 
 // Group-by expressions. Dashboard breakdowns GROUP BY exactly these, and the
@@ -105,6 +105,7 @@ function buildVisitFilters(q, { startIndex = 0 } = {}) {
     return tzRef;
   };
   const expr = (name) => EXPR[name].replace(/\$TZ/g, tz());
+  const today = () => `(now() AT TIME ZONE ${tz()}::text)::date`;
 
   // Date range as a half-open timestamp interval rather than a cast of every
   // row's timestamp — exactly equivalent, but it can use the created_at index.
@@ -141,9 +142,12 @@ function buildVisitFilters(q, { startIndex = 0 } = {}) {
     clauses.push(`v.status = 'PENDING' AND EXTRACT(EPOCH FROM (now() - v.created_at)) >= ${bind(config.unattendedAfterSeconds)}`);
   }
 
-  // Visits nobody saw end: the sweeper marked them as left after 24 hours
-  // inside because no guard checked them out.
-  if (f.stale === 'auto_checked_out') {
+  // The two ways a visit ends up without a real check-in or check-out: approved
+  // at the desk but never let in at the gate, and let in but never checked out
+  // (closed by the 24-hour rule instead of by a guard).
+  if (f.stale === 'never_checked_in') {
+    clauses.push(`v.status = 'APPROVED' AND ${expr('localDate')} < ${today()}`);
+  } else if (f.stale === 'auto_checked_out') {
     clauses.push("v.status = 'CHECKED_OUT' AND v.checkout_auto");
   }
 

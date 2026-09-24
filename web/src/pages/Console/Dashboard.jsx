@@ -332,14 +332,15 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* Visits the gate never saw end — closed by the 24-hour rule, and labelled as such. */}
+      {/* The gate's unfinished records, for the selected period. */}
       <section className="card p-4">
         <h3 className="font-bold text-slate-800">{D.attentionTitle}</h3>
         <p className="mb-3 text-sm text-slate-500">{D.attentionHint}</p>
-        {data.attention.auto_checked_out.value === 0 ? (
+        {data.attention.never_checked_in.value + data.attention.auto_checked_out.value === 0 ? (
           <p className="text-sm text-slate-600">{D.allClear}</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
+            <StatTile label={D.neverCheckedIn} value={data.attention.never_checked_in.value} drill={data.attention.never_checked_in.drill} />
             <StatTile label={D.autoCheckedOut} value={data.attention.auto_checked_out.value} drill={data.attention.auto_checked_out.drill} />
           </div>
         )}

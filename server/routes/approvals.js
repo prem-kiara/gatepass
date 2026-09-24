@@ -67,16 +67,14 @@ async function decide(req, res, next, { status, action, reason }) {
 
     let queuedNotifications = [];
     const won = await withTransaction(async (client) => {
-      // Approval means the visitor walks in: there is no separate check-in step,
-      // so an approved visit goes straight to INSIDE, timed at the decision.
-      const inside = status === 'APPROVED';
+      // A decision is only a decision: the visitor is not inside until a guard
+      // checks them in at the gate.
       const { rows } = await client.query(
         `UPDATE visits
-         SET status = $1, approved_by = $2, decision_at = now(), rejection_reason = $3,
-             checked_in_at = CASE WHEN $5 THEN now() ELSE checked_in_at END
+         SET status = $1, approved_by = $2, decision_at = now(), rejection_reason = $3
          WHERE id = $4 AND status = 'PENDING'
-         RETURNING id, logged_by, status, rejection_reason, host_admin_id`,
-        [inside ? 'INSIDE' : status, req.user.id, reason, visitId, inside]
+         RETURNING id, logged_by, status, rejection_reason`,
+        [status, req.user.id, reason, visitId]
       );
       if (rows.length === 0) return false;
 
@@ -84,36 +82,20 @@ async function decide(req, res, next, { status, action, reason }) {
         `INSERT INTO visit_events (visit_id, actor_id, action, detail) VALUES ($1, $2, $3, $4)`,
         [visitId, req.user.id, action, JSON.stringify(reason ? { reason } : {})]
       );
-      if (inside) {
-        // Two events, because two things happened; the second says it was implied.
-        await client.query(
-          `INSERT INTO visit_events (visit_id, actor_id, action, detail) VALUES ($1, $2, 'CHECKED_IN', $3)`,
-          [visitId, req.user.id, JSON.stringify({ auto: true, via: 'approval' })]
-        );
-      }
 
       // The broadcast "please approve" alert is now stale for every other admin.
       // Resolved, not deleted — the history keeps it.
       await notify.resolveForVisit(client, visitId);
 
       const { rows: who } = await client.query(
-        `SELECT vis.full_name,
-                (SELECT count(*) FROM visit_companions c WHERE c.visit_id = v.id)::int AS companion_count
-         FROM visitors vis JOIN visits v ON v.visitor_id = vis.id WHERE v.id = $1`,
+        'SELECT full_name FROM visitors vis JOIN visits v ON v.visitor_id = vis.id WHERE v.id = $1',
         [visitId]
       );
-      const visit = {
-        ...rows[0],
-        id: visitId,
-        full_name: who[0] ? who[0].full_name : 'Visitor',
-        companion_count: who[0] ? who[0].companion_count : 0,
-      };
-      queuedNotifications = await notify.visitDecided(client, visit, req.user.name);
-      // The host hears their visitor is inside — unless the host is the one who
-      // just approved it, in which case they already know.
-      if (inside && visit.host_admin_id && visit.host_admin_id !== req.user.id) {
-        queuedNotifications = queuedNotifications.concat(await notify.visitCheckedIn(client, visit));
-      }
+      queuedNotifications = await notify.visitDecided(
+        client,
+        { ...rows[0], id: visitId, full_name: who[0] ? who[0].full_name : 'Visitor' },
+        req.user.name
+      );
       return true;
     });
 
@@ -134,7 +116,7 @@ async function decide(req, res, next, { status, action, reason }) {
     if (!won) {
       return res.status(409).json({
         error: 'ALREADY_DECIDED',
-        message: `Already ${visit.status === 'REJECTED' ? 'rejected' : 'approved'} by ${visit.approved_by_name || 'another admin'}.`,
+        message: `Already ${visit.status.toLowerCase()} by ${visit.approved_by_name || 'another admin'}.`,
         visit,
       });
     }

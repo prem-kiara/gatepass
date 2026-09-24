@@ -15,8 +15,6 @@ const POLL_MS = 10000;
 
 function VisitCard({ visit, onAction, busyId, onOpenPhoto }) {
   const busy = busyId === visit.id;
-  // Approval marks the visitor inside, so the only action left is check-out.
-  // (APPROVED can only be a visit decided before that rule; still let it in.)
   const canCheckIn = visit.status === 'APPROVED';
   const canCheckOut = visit.status === 'INSIDE';
 

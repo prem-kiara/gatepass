@@ -513,6 +513,28 @@ anyone "in" for more than 24 hours is marked as left.
 
 ---
 
+## Reverted: approval no longer checks the visitor in
+
+The automatic check-in on approval (previous entry) is reverted at the client's request. Approving
+sets `APPROVED` again, the guard checks the visitor in at the gate, and the host is notified at
+check-in rather than at approval. The extra `CHECKED_IN` audit event on approval is gone.
+
+**Kept:** the 24-hour rule, `visits.checkout_auto`, and everything that labels an automatic
+check-out. It only ever applied to `INSIDE` visits, which is still exactly right — a visit approved
+and never checked in is not "in", so it stays `APPROVED` for the gate to chase.
+
+The dashboard's "Approved but never checked in" tile is back alongside "Marked as left
+automatically", both range-bound.
+
+**Data left as it stands.** The two days the automatic flow was live are history, not a bug to
+rewrite: 47 visits that were approved-but-never-checked-in were moved to `INSIDE` at their
+approval time, and the 24-hour rule then closed 97 visits. The audit trail says of each exactly
+what happened and that it was automatic. The 5 visits that were `INSIDE` at the revert were left
+inside — a guard can check them out, or the 24-hour rule will. Nothing in the restored flow
+depends on those rows.
+
+---
+
 ## v2 candidates (out of scope for v1)
 
 - OTP verification of the visitor's phone number.

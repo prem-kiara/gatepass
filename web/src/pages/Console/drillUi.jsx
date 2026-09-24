@@ -124,9 +124,7 @@ export function AuditTrail({ visitId }) {
             {formatDateTime(e.at)}
           </p>
           {e.detail && e.detail.auto && (
-            <p className="text-sm text-slate-500">
-              {e.action === 'CHECKED_OUT' ? L.gate.autoEventAfterHours : L.gate.autoEventOnApproval}
-            </p>
+            <p className="text-sm text-slate-500">{L.gate.autoEventAfterHours}</p>
           )}
           {e.detail && e.detail.reason && !e.detail.auto && (
             <p className="text-sm text-slate-600">{L.gate.reason}: {e.detail.reason}</p>

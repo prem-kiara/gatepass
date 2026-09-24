@@ -250,8 +250,9 @@ async function computeInsights(q = {}) {
     Promise.all(['inside_now', 'waiting', 'unattended'].map((live) =>
       scoped({ live }, (f) => `SELECT count(*)::int AS n ${FROM} ${f.where}`))),
 
-    // Visits the gate never saw end, within the selected range.
-    scoped(withRange({ stale: 'auto_checked_out' }), (f) => `SELECT count(*)::int AS n ${FROM} ${f.where}`),
+    // Visits the gate never finished, within the selected range.
+    Promise.all(['never_checked_in', 'auto_checked_out'].map((s) =>
+      scoped(withRange({ stale: s }), (f) => `SELECT count(*)::int AS n ${FROM} ${f.where}`))),
   ]);
 
   const t = totals.rows[0];
@@ -318,7 +319,8 @@ async function computeInsights(q = {}) {
     },
 
     attention: {
-      auto_checked_out: { value: stale.rows[0].n, drill: drillRange({ stale: 'auto_checked_out' }) },
+      never_checked_in: { value: stale[0].rows[0].n, drill: drillRange({ stale: 'never_checked_in' }) },
+      auto_checked_out: { value: stale[1].rows[0].n, drill: drillRange({ stale: 'auto_checked_out' }) },
     },
 
     series,

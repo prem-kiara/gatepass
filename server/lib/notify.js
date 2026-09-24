@@ -139,12 +139,12 @@ async function visitPending(client, visit) {
 
 /** The decision goes back to the guard who logged it, so they can act. */
 async function visitDecided(client, visit, decidedByName) {
-  const approved = visit.status !== 'REJECTED';
+  const approved = visit.status === 'APPROVED';
   return createFor(client, [visit.logged_by], {
     type: approved ? 'VISIT_APPROVED' : 'VISIT_REJECTED',
     title: approved ? `Approved: ${visit.full_name}` : `Rejected: ${visit.full_name}`,
     body: approved
-      ? `${decidedByName} approved the visit. They are marked inside — let them in.`
+      ? `${decidedByName} approved the visit. You can check them in.`
       : `${decidedByName} rejected the visit.${visit.rejection_reason ? ` Reason: ${visit.rejection_reason}` : ''}`,
     visitId: visit.id,
     url: '/gate',

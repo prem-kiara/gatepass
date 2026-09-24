@@ -156,19 +156,19 @@ async function main() {
         const hostAdmin = staffHost ? pick(approvers) : null;
         const hostName = staffHost ? null : pick(FREE_HOSTS);
 
-        // Outcome. Approval means inside (checked in at the decision); past days
-        // include visits nobody checked out, which the 24h rule closed.
+        // Outcome, including the unfinished records a real gate leaves behind:
+        // approved but never checked in, and checked in but closed by the 24h rule.
         let status;
         let auto = false;
-        if (back === 0) status = weighted([['PENDING', 2], ['INSIDE', 5], ['CHECKED_OUT', 3], ['REJECTED', 1]]);
+        if (back === 0) status = weighted([['PENDING', 2], ['APPROVED', 2], ['INSIDE', 3], ['CHECKED_OUT', 3], ['REJECTED', 1]]);
         else {
-          status = weighted([['CHECKED_OUT', 90], ['REJECTED', 7]]);
+          status = weighted([['CHECKED_OUT', 80], ['APPROVED', 10], ['REJECTED', 7]]);
           auto = status === 'CHECKED_OUT' && chance(0.12);
         }
 
         const decider = status === 'PENDING' ? null : pick(approvers);
         const decisionAt = decider ? plusMin(created, 1 + Math.floor(rnd() * rnd() * 45)) : null;
-        const checkedIn = ['INSIDE', 'CHECKED_OUT'].includes(status) ? decisionAt : null;
+        const checkedIn = ['INSIDE', 'CHECKED_OUT'].includes(status) ? plusMin(decisionAt, 1 + Math.floor(rnd() * 5)) : null;
         const checkedOut = status !== 'CHECKED_OUT' ? null
           : auto ? plusMin(checkedIn, 24 * 60) : plusMin(checkedIn, 20 + Math.floor(rnd() * 160));
         const cap = (d) => (d && d > new Date() ? new Date() : d);
@@ -194,7 +194,7 @@ async function main() {
 
         const ev = [['CREATED', pick(guards), created]];
         if (decider) ev.push([status === 'REJECTED' ? 'REJECTED' : 'APPROVED', decider, cap(decisionAt)]);
-        if (checkedIn) ev.push(['CHECKED_IN', decider, cap(checkedIn)]);
+        if (checkedIn) ev.push(['CHECKED_IN', pick(guards), cap(checkedIn)]);
         if (checkedOut) ev.push(['CHECKED_OUT', auto ? null : pick(guards), cap(checkedOut)]);
         for (const [action, actor, when] of ev) {
           await client.query('INSERT INTO visit_events (visit_id, actor_id, action, at) VALUES ($1,$2,$3,$4)', [visitId, actor, action, when]);

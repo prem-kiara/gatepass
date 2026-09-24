@@ -232,10 +232,10 @@ export const L = {
     waitingApproval: 'Waiting for approval',
     rejectedBy: (name: string) => `Rejected by ${name}`,
     approvedBy: (name: string) => `Approved by ${name}`,
-    // Approval marks the visitor inside; after 24h inside they are marked as left.
+    // Approval is a decision; a guard still checks the visitor in at the gate.
+    // After 24 hours inside they are marked as left automatically.
     insideSince: (time: string) => `Inside since ${time}`,
     autoCheckedOut: 'Marked as left automatically after 24 hours',
-    autoEventOnApproval: 'Automatic — approval lets the visitor in',
     autoEventAfterHours: 'Automatic — nobody checked them out within 24 hours',
     reason: 'Reason',
     visiting: 'Visiting',
@@ -360,11 +360,12 @@ export const L = {
       peopleCount: (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`,
       lastSeen: 'Last seen',
 
-      attentionTitle: 'Visits nobody checked out',
+      attentionTitle: 'Records the gate didn’t finish',
       attentionHint:
-        'In this period. Approved visitors count as inside; if no guard checks them out within 24 hours they are marked as left automatically.',
+        'In this period. A visit the gate never checked in, or never checked out — the 24-hour rule closed it instead.',
+      neverCheckedIn: 'Approved but never checked in',
       autoCheckedOut: 'Marked as left automatically',
-      allClear: 'Every visit in this period was checked out by the gate. 👍',
+      allClear: 'Nothing left unfinished. 👍',
 
       showTable: 'Table',
       showChart: 'Chart',
@@ -382,6 +383,7 @@ export const L = {
       outcome: { approved: 'Let in', rejected: 'Turned away', pending: 'Waiting', decided: 'Decided' } as Record<string, string>,
       live: { inside_now: 'Inside right now', waiting: 'Waiting for approval', unattended: 'Waiting 10+ min' } as Record<string, string>,
       stale: {
+        never_checked_in: 'Approved, never checked in',
         auto_checked_out: 'Marked as left automatically',
       } as Record<string, string>,
       decidedBy: (name: string) => `Decided by ${name}`,
