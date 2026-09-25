@@ -79,3 +79,53 @@
   --viz-seq-4: #1c5cab;
   --viz-seq-5: #104281;
 }
+
+/* ------------------------------------------------------------------- print
+ * "Download as PDF" is the browser's own print dialog, so the printed page is
+ * the real dashboard — one rendering path, never out of step with the screen.
+ *
+ * Three things have to change on paper: the app furniture goes (a nav bar is
+ * not a report), the charts must keep their ink (browsers drop backgrounds by
+ * default, which would print an empty heatmap), and nothing may be clipped —
+ * anything that scrolls sideways on a phone has to unroll to full width here. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html, body {
+    background: #fff;
+  }
+
+  /* Bars, heatmap squares and status badges carry meaning in their fill. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* App furniture: header, nav, footers, toasts, lightboxes. */
+  header, nav, .no-print {
+    display: none !important;
+  }
+
+  /* Cards read as sections on paper, not as floating tiles, and must not be
+     split across a page break mid-chart. */
+  .card {
+    border-color: #cbd5e1;
+    box-shadow: none;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* On screen these scroll; on paper there is nowhere to scroll to. */
+  .overflow-x-auto, .overflow-auto, .overflow-hidden {
+    overflow: visible !important;
+  }
+
+  /* Drill-down links are dead ink on paper — keep the text, drop the styling. */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

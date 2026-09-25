@@ -11,6 +11,7 @@ const { str, normalizePhone, uuid, oneOf, isoDate, ValidationError } = require('
 const { VISIT_SELECT, todayClause, decorate } = require('../lib/visitQueries');
 const { buildVisitFilters, orderBy: visitOrder } = require('../lib/visitFilters');
 const { computeInsights, countVisits, listVisitors, visitorProfile } = require('../lib/insights');
+const { buildReport } = require('../lib/reportXlsx');
 const { randomTempPin, hashPin } = require('../lib/pin');
 const { generateTempPassword } = require('../lib/tempPassword');
 const { logAuth } = require('../lib/authlog');
@@ -385,6 +386,24 @@ router.get('/visits', async (req, res, next) => {
 });
 
 /* ---------------------------------------------------- dashboard & people */
+
+/**
+ * GET /api/admin/report.xlsx?preset=30d | from=&to= — the dashboard as a
+ * workbook: summary, the visits behind it, and every breakdown on its own
+ * sheet. Same query parameters as /insights, so "download" always means
+ * "what I am looking at".
+ */
+router.get('/report.xlsx', async (req, res, next) => {
+  try {
+    const { workbook, filename } = await buildReport(req.query);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
 
 /** GET /api/admin/insights?preset=30d | from=&to= — the superadmin dashboard. */
 router.get('/insights', async (req, res, next) => {

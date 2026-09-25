@@ -109,7 +109,7 @@ Production serves the built SPA from the same Express process — there is no se
 ./test/e2e.sh
 ```
 
-232 end-to-end cases over the real HTTP API, including a walk of every superadmin dashboard number (see below). **It drops and recreates the database named by
+249 end-to-end cases over the real HTTP API, including a walk of every superadmin dashboard number (see below). **It drops and recreates the database named by
 `GATEPASS_TEST_DB` (default `gatepass_dev`) — never point that at production.** It starts its own
 server on port 3040, so stop any local instance first.
 
@@ -146,6 +146,22 @@ only turns `drill` into a URL (`web/src/lib/drill.js`).
   instead of by a guard — sit under "Records the gate didn't finish" for the selected period.
 - Organisation and free-text host names group case- and space-insensitively ("AXIS BANK" =
   "Axis Bank"); the label shown prefers a properly capitalised spelling, then the most frequent.
+
+**Downloading it** (superadmin only, both carry the dashboard's own range):
+
+- **Excel** — `GET /api/admin/report.xlsx`, built by `lib/reportXlsx.js` from the same
+  `computeInsights` + `buildVisitFilters` as the screen, so the workbook cannot disagree with the
+  dashboard. Sheets: Summary, Visits, Per day/week, Busiest times, Organisations, Came to see,
+  Decisions by admin, Logged by guard, Frequent visitors. Dates are written as gate-local **text**,
+  not Excel serial dates — a serial date carries no timezone and would shift a visit's arrival for
+  a reader in another zone. `test/report-check.js` asserts the Summary total, the Visits row count
+  and `countVisits` agree over every preset; it runs in `test/e2e.sh` and is read-only, so it is
+  also safe against production.
+- **PDF** — `window.print()` against the `@media print` block in `web/src/index.css`, not a
+  server-rendered document: the printed page *is* the dashboard, so there is no second rendering
+  path to keep in step. Add `no-print` to any control that would otherwise print as dead ink.
+  Print rules must keep `print-color-adjust: exact` (browsers drop backgrounds by default, which
+  would print an empty heatmap) and unroll anything that scrolls sideways on screen.
 
 ## Real-time updates (Server-Sent Events)
 

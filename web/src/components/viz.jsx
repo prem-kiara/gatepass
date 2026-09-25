@@ -101,7 +101,8 @@ export function ChartCard({ title, hint, table, children, className = '' }) {
           <button
             type="button"
             onClick={() => setAsTable((v) => !v)}
-            className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            // no-print: a view toggle is meaningless once the page is on paper.
+            className="no-print shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
             {asTable ? L.console.dash.showChart : L.console.dash.showTable}
           </button>

@@ -535,6 +535,31 @@ depends on those rows.
 
 ---
 
+## Downloading the dashboard
+
+Two downloads behind one button on the dashboard, both carrying whatever date range is on screen.
+
+**Excel** (`/api/admin/report.xlsx`, `lib/reportXlsx.js`, exceljs): nine sheets — Summary, the full
+visit list, per day/week, busiest times, organisations, whom they came to see, decisions by admin,
+logged by guard, frequent visitors. Built from the same `computeInsights` and `buildVisitFilters`
+as the dashboard, so it inherits the drill-down contract instead of re-deriving numbers.
+`test/report-check.js` pins that down: across every preset, the Summary total, the Visits sheet row
+count and `countVisits` must be the same number.
+
+Dates are gate-local text, not Excel serial dates — a serial date has no timezone, so opening the
+file abroad would quietly move every arrival by hours.
+
+**PDF** is the browser's print dialog over a new `@media print` block, not a server-rendered
+document: the printed page is the real dashboard, so it can never drift from the screen, and it
+costs no headless-browser dependency on a shared VM. The block hides app furniture, forces
+`print-color-adjust: exact` (or the heatmap prints blank), unrolls the sideways-scrolling regions,
+and keeps cards off page breaks. Verified at A4 width with the print rules applied: nothing wider
+than the page, controls hidden, ~5 pages.
+
+Superadmin only — admins and guards get a 403, matching who can see the dashboard at all.
+
+---
+
 ## v2 candidates (out of scope for v1)
 
 - OTP verification of the visitor's phone number.

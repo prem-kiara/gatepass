@@ -299,6 +299,13 @@ export const L = {
       comparedWith: (days: number) => `compared with the ${days} day${days === 1 ? '' : 's'} before`,
       tapHint: 'Tap any number, bar or row to see the visits behind it.',
 
+      download: 'Download report',
+      downloadExcel: 'Excel workbook (.xlsx)',
+      downloadExcelHint: 'Summary, every visit and each breakdown on its own sheet',
+      downloadPdf: 'PDF / print',
+      downloadPdfHint: 'This page as it looks now — choose “Save as PDF”',
+      printedOn: (when: string) => `Generated ${when}`,
+
       rightNow: 'Right now',
       rightNowHint: 'Not affected by the date range.',
       insideNow: 'Inside now',

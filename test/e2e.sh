@@ -773,6 +773,40 @@ LINES=$(curl -s -b "$D/su.txt" "$API/admin/visits?from_type=GOVERNMENT&format=cs
 # exactly the number of data rows under the header.
 check "filtered CSV export has one row per counted visit" "$LINES" "$N"
 
+# --- the downloadable report ---
+echo "--- Excel report ---"
+code=$(curl -s -o "$D/report.xlsx" -w '%{http_code}' -D "$D/report.head" -b "$D/su.txt" "$API/admin/report.xlsx?preset=all")
+check "superadmin downloads the report" "$code" "200"
+grep -qi 'spreadsheetml.sheet' "$D/report.head" && ok "served as an Excel workbook" || bad "content type" "$(grep -i content-type "$D/report.head")"
+grep -qi 'attachment; filename="gatepass-report-' "$D/report.head" && ok "downloads with a dated filename" || bad "filename" "$(grep -i disposition "$D/report.head")"
+# A .xlsx is a zip; "PK" proves we sent a real file and not an error page.
+head -c 2 "$D/report.xlsx" | grep -q 'PK' && ok "workbook is a valid archive" || bad "xlsx body" "$(head -c 80 "$D/report.xlsx")"
+SHEETS=$( cd $ROOT/server && node -e "
+const E=require('exceljs');const wb=new E.Workbook();
+wb.xlsx.readFile('$D/report.xlsx').then(()=>{console.log(wb.worksheets.map(w=>w.name).join(','))});" )
+echo "  (sheets: $SHEETS)"
+for SH in Summary Visits 'Busiest times' Organisations 'Came to see' 'Decisions by admin' 'Logged by guard' 'Frequent visitors'; do
+  case "$SHEETS" in *"$SH"*) ok "report has the $SH sheet";; *) bad "sheet $SH" "got $SHEETS";; esac
+done
+# The workbook is built from the same insights + filters as the screen; this
+# proves the numbers in it still agree with the drill-down counts.
+( cd $ROOT && node test/report-check.js ) > "$D/report-check.log" 2>&1
+RPP=$(awk '/^REPORT/{for(i=1;i<=NF;i++){split($i,a,"=");if(a[1]=="passed")print a[2]}}' "$D/report-check.log")
+RPF=$(awk '/^REPORT/{for(i=1;i<=NF;i++){split($i,a,"=");if(a[1]=="failed")print a[2]}}' "$D/report-check.log")
+[ "${RPF:-1}" = "0" ] && [ "${RPP:-0}" -ge 16 ]   && ok "report totals match the dashboard over every range ($RPP checks)"   || bad "report totals" "passed=${RPP:-?} failed=${RPF:-?} — see $D/report-check.log"
+# It is a whole-organisation report: admins and guards must not be able to pull it.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/a1.txt" "$API/admin/report.xlsx?preset=all")
+check "admin cannot download the report" "$code" "403"
+# By now the guard's own session has also been invalidated by the PIN tests, so
+# either answer is a refusal — what matters is that no guard gets the workbook.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/g.txt" "$API/admin/report.xlsx?preset=all")
+case "$code" in 401|403) ok "guard cannot download the report ($code)";; *) bad "guard report access" "got $code";; esac
+code=$(curl -s -o /dev/null -w '%{http_code}' "$API/admin/report.xlsx?preset=all")
+check "unauthenticated cannot download the report" "$code" "401"
+# A bad range must be refused, not silently widened to everything.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$D/su.txt" "$API/admin/report.xlsx?from=2026-03-02&to=2026-03-01")
+check "report rejects a backwards date range" "$code" "400"
+
 # Inconsistent spellings are one organisation, labelled with the tidy spelling.
 curl -s -b "$D/su.txt" "$API/admin/insights?preset=all" > "$D/ins.json"
 grep -q '"label":"Kiara Global Services"' "$D/ins.json" && ok "variant spellings grouped under the properly capitalised name" \

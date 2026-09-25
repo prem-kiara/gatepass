@@ -89,6 +89,7 @@ export const admin = {
   visits: (params) => api.get(`/api/admin/visits?${new URLSearchParams(params)}`),
   visitsCsvUrl: (params) => `/api/admin/visits?${new URLSearchParams({ ...params, format: 'csv' })}`,
   insights: (params) => api.get(`/api/admin/insights?${new URLSearchParams(params)}`),
+  reportXlsxUrl: (params) => `/api/admin/report.xlsx?${new URLSearchParams(params)}`,
   visitors: (params) => api.get(`/api/admin/visitors?${new URLSearchParams(params)}`),
   visitor: (id) => api.get(`/api/admin/visitors/${id}`),
   events: (id) => api.get(`/api/admin/visits/${id}/events`),

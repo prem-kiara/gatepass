@@ -6,6 +6,7 @@ import { useLiveEvent } from '../../lib/live';
 import { drillHref, personHref } from '../../lib/drill';
 import { formatDateTime, formatDuration } from '../../lib/format';
 import { LoadingBlock, ErrorBanner, PhotoImage } from '../../components/ui';
+import DownloadMenu from '../../components/DownloadMenu';
 import { StatTile, ChartCard, DrillTable, BarList, ColumnChart, Heatmap, fmtNum, fmtDay } from '../../components/viz';
 
 const D = L.console.dash;
@@ -115,8 +116,19 @@ export default function Dashboard() {
   return (
     // Refetch keeps the frame: the previous render dims instead of vanishing.
     <div className={`space-y-5 transition-opacity ${loading ? 'opacity-60' : ''}`}>
-      <div className="space-y-2">
-        <RangeBar params={params} onChange={setRange} range={range} />
+      {/* Only shown on paper: on screen the range bar already says all this. */}
+      <div className="hidden print:block">
+        <h1 className="text-xl font-bold text-slate-900">{L.appName}</h1>
+        <p className="text-sm text-slate-600">
+          {rangeText} · {D.printedOn(formatDateTime(new Date()))}
+        </p>
+      </div>
+
+      <div className="space-y-2 print:hidden">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <RangeBar params={params} onChange={setRange} range={range} />
+          <DownloadMenu params={params} />
+        </div>
         <p className="text-sm text-slate-500">
           <span className="font-semibold text-slate-700">{rangeText}</span>
           {range.previous && ` · ${D.comparedWith(range.days)}`}
