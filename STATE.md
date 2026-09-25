@@ -558,6 +558,12 @@ than the page, controls hidden, ~5 pages.
 
 Superadmin only — admins and guards get a 403, matching who can see the dashboard at all.
 
+**Fixed straight after:** the menu was anchored `right-0`, which is correct on a desktop where the
+button sits at the right of the range bar, but on a phone the button wraps onto its own row at the
+*left* — so the menu opened 130px off the side of the screen and the labels were cut in half.
+Anchored to the left below `sm`. Measured open at 320px, 375px and 1200px: nothing clipped at
+either edge.
+
 ---
 
 ## v2 candidates (out of scope for v1)

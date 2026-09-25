@@ -50,8 +50,11 @@ export default function DownloadMenu({ params }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden
-                     rounded-2xl border border-slate-200 bg-white shadow-lg"
+          /* Anchored to whichever edge the button sits at: on a phone the button
+             wraps onto its own row at the left, so a right-anchored menu opened
+             off the side of the screen. From `sm` up the button is right-aligned. */
+          className="absolute left-0 top-full z-30 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden
+                     rounded-2xl border border-slate-200 bg-white shadow-lg sm:left-auto sm:right-0"
         >
           <a
             role="menuitem"
